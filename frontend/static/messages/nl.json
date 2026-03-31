@@ -1421,7 +1421,10 @@
       "noInference": "Nog geen gegevens",
       "statusOk": "OK",
       "statusWarning": "Waarschuwing",
-      "statusCritical": "Kritiek"
+      "statusCritical": "Kritiek",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Opslag",

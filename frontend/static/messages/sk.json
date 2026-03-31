@@ -1420,7 +1420,10 @@
       "noInference": "Žiadne dáta",
       "statusOk": "OK",
       "statusWarning": "Varovanie",
-      "statusCritical": "Kritický"
+      "statusCritical": "Kritický",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Úložisko",

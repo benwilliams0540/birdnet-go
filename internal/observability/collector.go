@@ -39,6 +39,12 @@ type Collector struct {
 	inferenceCounters *inferencestats.Counters
 	prevInferenceSnap *inferencestats.Snapshot
 
+	// GPU metrics tracking (Linux devfreq-based)
+	gpuDevfreqPath string
+	gpuMinFreqHz   uint64
+	gpuAvailable   bool
+	prevGPUSnap    *gpuTransStat
+
 	// Track which metrics have had logged errors to avoid log spam
 	loggedErrors map[string]bool
 }
@@ -54,13 +60,18 @@ func NewCollector(store MetricsStore, interval time.Duration, cpuFunc CPUUsageFu
 	if interval <= 0 {
 		panic("observability: NewCollector requires a positive interval")
 	}
-	return &Collector{
+	gpuPath, gpuMinHz := findGPUDevfreqPath()
+	c := &Collector{
 		store:        store,
 		interval:     interval,
 		cpuFunc:      cpuFunc,
 		prevDiskIO:   make(map[string]disk.IOCountersStat),
 		loggedErrors: make(map[string]bool),
+		gpuDevfreqPath: gpuPath,
+		gpuMinFreqHz:   gpuMinHz,
+		gpuAvailable:   gpuPath != "",
 	}
+	return c
 }
 
 // Start runs the collection loop until the context is cancelled.
@@ -100,6 +111,8 @@ const (
 	metricDBQueriesPerSec   = "db.queries_per_sec"
 	metricBirdNETInvokeAvg  = "birdnet.invoke_avg_ms"
 	metricBirdNETInvokeMax  = "birdnet.invoke_max_ms"
+	metricGPUUsagePercent   = "gpu.usage_percent"
+	metricGPUFreqMHz        = "gpu.freq_mhz"
 
 	// maxValidCelsius is the upper bound for valid CPU temperature readings.
 	// 120°C captures overheating events before thermal shutdown while filtering bogus values.
@@ -116,6 +129,7 @@ func (c *Collector) collect() {
 	c.collectDisk(points)
 	c.collectDatabase(points)
 	c.collectInference(points)
+	c.collectGPU(points)
 
 	if len(points) > 0 {
 		c.store.RecordBatch(points)
@@ -288,6 +302,32 @@ func (c *Collector) collectInference(points map[string]float64) {
 	}
 
 	c.prevInferenceSnap = &snap
+}
+
+// collectGPU reads GPU utilization and current frequency from Linux devfreq sysfs.
+// Utilization is computed as the fraction of time NOT spent at the minimum (idle) frequency
+// between successive trans_stat reads. Falls back to 0 when no GPU devfreq device is found.
+func (c *Collector) collectGPU(points map[string]float64) {
+	if !c.gpuAvailable {
+		return
+	}
+
+	// Current frequency as a human-readable MHz value
+	curHz := readDevfreqFreq(c.gpuDevfreqPath, "cur_freq")
+	if curHz > 0 {
+		points[metricGPUFreqMHz] = float64(curHz) / 1e6
+	}
+
+	// Utilization via trans_stat delta
+	snap, ok := readGPUTransStat(c.gpuDevfreqPath)
+	if !ok {
+		return
+	}
+	if c.prevGPUSnap != nil {
+		util := gpuUtilizationPercent(*c.prevGPUSnap, snap, c.gpuMinFreqHz)
+		points[metricGPUUsagePercent] = util
+	}
+	c.prevGPUSnap = &snap
 }
 
 // logOnce logs a message for a metric category only on the first occurrence.

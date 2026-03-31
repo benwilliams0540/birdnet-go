@@ -1420,7 +1420,10 @@
       "noInference": "Még nincs adat",
       "statusOk": "OK",
       "statusWarning": "Figyelmeztetés",
-      "statusCritical": "Kritikus"
+      "statusCritical": "Kritikus",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Tárolás",

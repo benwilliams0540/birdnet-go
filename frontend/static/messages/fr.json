@@ -1421,7 +1421,10 @@
       "noInference": "Pas encore de données",
       "statusOk": "OK",
       "statusWarning": "Attention",
-      "statusCritical": "Critique"
+      "statusCritical": "Critique",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Stockage",

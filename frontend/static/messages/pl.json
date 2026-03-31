@@ -1421,7 +1421,10 @@
       "noInference": "Brak danych",
       "statusOk": "OK",
       "statusWarning": "Ostrzeżenie",
-      "statusCritical": "Krytyczny"
+      "statusCritical": "Krytyczny",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Pamięć masowa",

@@ -1421,7 +1421,10 @@
       "noInference": "Sin datos aún",
       "statusOk": "OK",
       "statusWarning": "Advertencia",
-      "statusCritical": "Crítico"
+      "statusCritical": "Crítico",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Almacenamiento",

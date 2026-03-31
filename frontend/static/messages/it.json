@@ -1420,7 +1420,10 @@
       "noInference": "Nessun dato",
       "statusOk": "OK",
       "statusWarning": "Attenzione",
-      "statusCritical": "Critico"
+      "statusCritical": "Critico",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Archiviazione",

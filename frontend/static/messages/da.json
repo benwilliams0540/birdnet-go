@@ -1420,7 +1420,10 @@
       "noInference": "Ingen data endnu",
       "statusOk": "OK",
       "statusWarning": "Advarsel",
-      "statusCritical": "Kritisk"
+      "statusCritical": "Kritisk",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Lager",

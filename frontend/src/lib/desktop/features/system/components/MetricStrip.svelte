@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n';
-  import { Cpu, MemoryStick, Thermometer, Brain } from '@lucide/svelte';
+  import { Cpu, MemoryStick, Thermometer, Brain, Gpu } from '@lucide/svelte';
   import { formatBytesCompact } from '$lib/utils/formatters';
   import Sparkline from './Sparkline.svelte';
 
@@ -21,6 +21,10 @@
     inferenceHistory: number[];
     hasInferenceData: boolean;
     inferenceThresholdMs?: number;
+    gpuAvailable: boolean;
+    gpuPercent: number;
+    gpuFreqMHz: number;
+    gpuHistory: number[];
   }
 
   let {
@@ -40,12 +44,17 @@
     inferenceHistory,
     hasInferenceData,
     inferenceThresholdMs,
+    gpuAvailable,
+    gpuPercent,
+    gpuFreqMHz,
+    gpuHistory,
   }: Props = $props();
 
   const sparklineColorCpu = '#3b82f6';
   const sparklineColorMemory = '#8b5cf6';
   const sparklineColorTemperature = '#f97316';
   const sparklineColorInference = '#14b8a6';
+  const sparklineColorGpu = '#22c55e';
 
   let hasTempHistory = $derived(temperatureHistory.length > 0);
   let tempMin = $derived(hasTempHistory ? Math.min(...temperatureHistory) : temperatureValue);
@@ -61,7 +70,7 @@
   });
 </script>
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
   <!-- CPU -->
   <div
     class="bg-[var(--surface-100)] border border-[var(--border-100)] rounded-xl p-4 shadow-sm flex flex-col"
@@ -136,6 +145,40 @@
     {:else}
       <div class="flex-1 min-h-[28px] flex items-center">
         <span class="text-xs text-muted">{t('system.metrics.tempUnavailable')}</span>
+      </div>
+    {/if}
+  </div>
+
+  <!-- GPU -->
+  <div
+    class="bg-[var(--surface-100)] border border-[var(--border-100)] rounded-xl p-4 shadow-sm flex flex-col"
+  >
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <div class="p-1.5 rounded-lg bg-green-500/10">
+          <Gpu class="w-4 h-4 text-green-500" />
+        </div>
+        <span class="text-xs font-medium text-muted">{t('system.metrics.gpu')}</span>
+      </div>
+      <span class="font-mono tabular-nums text-lg font-semibold">
+        {#if gpuAvailable}
+          {gpuPercent.toFixed(1)}%
+        {:else}
+          —
+        {/if}
+      </span>
+    </div>
+    {#if gpuAvailable}
+      <div class="flex-1 min-h-[28px]">
+        <Sparkline data={gpuHistory} color={sparklineColorGpu} />
+      </div>
+      <div class="flex justify-between mt-2 text-[10px] text-muted">
+        <span>{t('system.metrics.freqMhz')} {gpuFreqMHz.toFixed(0)}</span>
+        <span>{gpuHistory.length} {t('system.metrics.samples')}</span>
+      </div>
+    {:else}
+      <div class="flex-1 min-h-[28px] flex items-center">
+        <span class="text-xs text-muted">{t('system.metrics.gpuUnavailable')}</span>
       </div>
     {/if}
   </div>

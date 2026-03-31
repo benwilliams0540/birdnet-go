@@ -1421,7 +1421,10 @@
       "noInference": "Ei dataa vielä",
       "statusOk": "OK",
       "statusWarning": "Varoitus",
-      "statusCritical": "Kriittinen"
+      "statusCritical": "Kriittinen",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Tallennustila",

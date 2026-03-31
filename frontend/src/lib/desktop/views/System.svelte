@@ -117,6 +117,7 @@
   let memoryHistory = $state<number[]>([]);
   let temperatureHistory = $state<number[]>([]);
   let inferenceHistory = $state<number[]>([]);
+  let gpuHistory = $state<number[]>([]);
 
   // Toggle for showing all processes
   let showAllProcesses = $state(false);
@@ -161,6 +162,11 @@
   );
   let hasInferenceData = $derived(inferenceHistory.length > 0);
 
+  // GPU sparkline derived values
+  let gpuPercent = $derived(gpuHistory.length > 0 ? gpuHistory[gpuHistory.length - 1] : 0);
+  let gpuAvailable = $derived(gpuHistory.length > 0);
+  let gpuFreqMHz = $state(0);
+
   // BirdNET overlap setting — used to compute the inference threshold
   // Threshold = (3.0 - overlap) * 1000 ms: inference must stay below this to keep up with real-time
   const BIRDNET_CHUNK_SECONDS = 3.0;
@@ -181,7 +187,7 @@
   async function loadMetricsHistory(active: { current: boolean }): Promise<void> {
     try {
       const data = await api.get<MetricsHistoryResponse>(
-        `/api/v2/system/metrics/history?points=${MAX_HISTORY_POINTS}&metrics=cpu.total,memory.used_percent,cpu.temperature,birdnet.invoke_avg_ms`
+        `/api/v2/system/metrics/history?points=${MAX_HISTORY_POINTS}&metrics=cpu.total,memory.used_percent,cpu.temperature,birdnet.invoke_avg_ms,gpu.usage_percent,gpu.freq_mhz`
       );
 
       if (!active.current) return;
@@ -197,6 +203,15 @@
       }
       if (data.metrics['birdnet.invoke_avg_ms']) {
         inferenceHistory = data.metrics['birdnet.invoke_avg_ms'].map((p: MetricPoint) => p.value);
+      }
+      if (data.metrics['gpu.usage_percent']) {
+        gpuHistory = data.metrics['gpu.usage_percent'].map((p: MetricPoint) => p.value);
+      }
+      if (data.metrics['gpu.freq_mhz']) {
+        const freqPoints = data.metrics['gpu.freq_mhz'];
+        if (freqPoints.length > 0) {
+          gpuFreqMHz = freqPoints[freqPoints.length - 1].value;
+        }
       }
 
       // Only connect SSE if the history endpoint succeeded and component is still mounted
@@ -280,7 +295,7 @@
   // Connect to metrics SSE stream for live updates
   function connectMetricsStream(): void {
     metricsSSE = new ReconnectingEventSource(
-      '/api/v2/system/metrics/stream?metrics=cpu.total,memory.used_percent,cpu.temperature,birdnet.invoke_avg_ms',
+      '/api/v2/system/metrics/stream?metrics=cpu.total,memory.used_percent,cpu.temperature,birdnet.invoke_avg_ms,gpu.usage_percent,gpu.freq_mhz',
       { max_retry_time: 30000 }
     );
 
@@ -304,6 +319,12 @@
             inferenceHistory,
             metrics['birdnet.invoke_avg_ms'].value
           );
+        }
+        if (metrics['gpu.usage_percent']) {
+          gpuHistory = appendHistory(gpuHistory, metrics['gpu.usage_percent'].value);
+        }
+        if (metrics['gpu.freq_mhz']) {
+          gpuFreqMHz = metrics['gpu.freq_mhz'].value;
         }
       } catch {
         logger.debug('Failed to parse metrics SSE event');
@@ -523,6 +544,10 @@
       {inferenceHistory}
       {hasInferenceData}
       {inferenceThresholdMs}
+      {gpuAvailable}
+      {gpuPercent}
+      {gpuFreqMHz}
+      {gpuHistory}
     />
 
     <!-- System Details + Storage -->

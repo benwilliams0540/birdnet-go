@@ -1420,7 +1420,10 @@
       "noInference": "Datu vēl nav",
       "statusOk": "Labi",
       "statusWarning": "Brīdinājums",
-      "statusCritical": "Kritisks"
+      "statusCritical": "Kritisks",
+      "gpu": "GPU",
+      "gpuUnavailable": "Not available",
+      "freqMhz": "MHz"
     },
     "storage": {
       "title": "Krātuve",
