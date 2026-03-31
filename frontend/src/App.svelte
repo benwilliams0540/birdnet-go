@@ -137,6 +137,7 @@
     '/species': 'settings.sections.species',
     '/notifications': 'settings.sections.notifications',
     '/support': 'settings.sections.support',
+    '/wifi': 'settings.sections.wifi',
   };
 
   // System subpage title keys

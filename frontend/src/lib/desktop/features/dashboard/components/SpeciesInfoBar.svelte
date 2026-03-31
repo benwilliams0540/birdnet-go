@@ -15,6 +15,8 @@
   import { Check } from '@lucide/svelte';
   import { cn } from '$lib/utils/cn';
   import { t } from '$lib/i18n';
+  import { dashboardSettings } from '$lib/stores/settings';
+  import { formatTimeDisplay, getLocalTimeString } from '$lib/utils/date';
 
   interface Props {
     detection: Detection;
@@ -22,6 +24,9 @@
   }
 
   let { detection, className = '' }: Props = $props();
+
+  // Time format from dashboard settings
+  let timeFormat = $derived(($dashboardSettings?.timeFormat ?? '24h') as '12h' | '24h');
 
   // Use the server timestamp (RFC3339 with timezone) for accurate relative time.
   // Without a timezone-aware timestamp, relative time cannot be computed correctly
@@ -34,6 +39,12 @@
     return null;
   });
   const relativeTime = $derived(formatRelativeTime(detectionDateTime));
+
+  // Display time in browser's local timezone (detectionDateTime is a UTC Date object).
+  // Falls back to the raw detection.time string if no timestamp is available.
+  const localDisplayTime = $derived(
+    detectionDateTime ? getLocalTimeString(detectionDateTime) : detection.time
+  );
 
   // Check verification status (API returns verified directly on detection)
   const isVerified = $derived(detection.verified === 'correct');
@@ -88,12 +99,14 @@
     </div>
 
     <!-- Scientific name -->
-    <div class="scientific-name">{detection.scientificName}</div>
+    {#if detection.scientificName && detection.scientificName !== detection.commonName}
+      <div class="scientific-name">{detection.scientificName}</div>
+    {/if}
   </div>
 
   <!-- Time Info (right-aligned) -->
   <div class="time-info">
-    <span class="detection-time">{detection.time}</span>
+    <span class="detection-time">{formatTimeDisplay(localDisplayTime, timeFormat)}</span>
     <span class="relative-time">{relativeTime}</span>
   </div>
 </div>

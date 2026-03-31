@@ -13,6 +13,12 @@ type CPUSpec struct {
 	BrandName        string
 	PerformanceCores int
 	EfficiencyCores  int
+	Architecture     string // "x86_64", "aarch64", or runtime.GOARCH
+	HasDotProduct    bool   // ARM asimddp (dot product extension)
+	HasI8MM          bool   // ARM i8mm (int8 matrix multiply)
+	HasSVE           bool   // ARM SVE (scalable vector extension)
+	IsQualcomm       bool   // Qualcomm SoC detected
+	ARMPartName      string // Human-readable ARM CPU part name (e.g. "Kryo-V2")
 }
 
 // GetCPUSpec returns CPU specifications including the number of performance cores
@@ -22,9 +28,21 @@ func GetCPUSpec() CPUSpec {
 	spec := CPUSpec{
 		BrandName:        brandName,
 		PerformanceCores: determinePerformanceCores(brandName),
+		Architecture:     runtime.GOARCH,
+	}
+
+	// On ARM Linux, enrich with /proc/cpuinfo data
+	if runtime.GOARCH == "arm64" && runtime.GOOS == "linux" {
+		enrichARMSpec(&spec)
 	}
 
 	return spec
+}
+
+// RecommendONNXBackend returns true if the ONNX backend is likely faster
+// than TFLite+XNNPACK on this CPU (e.g. ARM without dot-product extension).
+func (c CPUSpec) RecommendONNXBackend() bool {
+	return c.Architecture == "arm64" && !c.HasDotProduct
 }
 
 // GetOptimalThreadCount returns the recommended number of threads for BirdNet analysis
@@ -39,6 +57,11 @@ func (c CPUSpec) GetOptimalThreadCount() int {
 			return availableCPUs
 		}
 		return recommendedThreads
+	}
+
+	// ARM SoCs with homogeneous cores: use all available
+	if c.Architecture == "aarch64" && c.ARMPartName != "" {
+		return availableCPUs
 	}
 
 	// Fallback to using all logical cores if we can't determine P-cores

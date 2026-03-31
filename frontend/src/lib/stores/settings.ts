@@ -539,6 +539,7 @@ export interface Dashboard {
   logoStyle?: string; // Logo display style: "gradient" or "solid"
   layout?: DashboardLayout; // Configurable dashboard element layout
   defaultAudioGain?: number; // Default playback gain in dB (0-24)
+  timeFormat?: '12h' | '24h'; // Time display format: "24h" or "12h"
 }
 
 // Dashboard layout configuration

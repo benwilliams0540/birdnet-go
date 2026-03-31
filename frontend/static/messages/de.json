@@ -1621,7 +1621,8 @@
       "notifications": "Benachrichtigungen",
       "security": "Sicherheit",
       "species": "Arten",
-      "support": "Unterstützung"
+      "support": "Unterstützung",
+      "wifi": "WiFi"
     },
     "notFound": {
       "title": "Einstellungen nicht gefunden",
@@ -3885,7 +3886,15 @@
       "language": {
         "title": "Sprache & Region",
         "description": "Sprache, Temperatureinheiten und regionale Anzeigeeinstellungen"
-      },
+      ,
+        "timeFormat": {
+          "label": "Zeitformat",
+          "helpText": "W\u00e4hlen Sie, wie Zeiten in der Benutzeroberfl\u00e4che angezeigt werden",
+          "options": {
+            "24h": "24-Stunden (14:30)",
+            "12h": "12-Stunden (2:30 PM)"
+          }
+        }},
       "visualContent": {
         "title": "Visuelle Inhalte",
         "description": "Konfigurieren Sie Vogelbilder und Spektrogramm-Anzeigeeinstellungen"
@@ -3898,7 +3907,63 @@
         "defaultGainUnit": "dB"
       }
     },
-    "restartRequired": "Einige Änderungen erfordern einen Neustart des Servers. Bitte starten Sie BirdNET-Go neu."
+    "restartRequired": "Einige Änderungen erfordern einen Neustart des Servers. Bitte starten Sie BirdNET-Go neu.",
+    "wifi": {
+      "tabs": {
+        "connection": "Connection",
+        "hotspot": "Hotspot"
+      },
+      "status": {
+        "title": "WiFi Status",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "connectivity": "Connectivity",
+        "network": "Network",
+        "full": "Full",
+        "none": "None",
+        "limited": "Limited"
+      },
+      "scan": {
+        "button": "Scan for Networks",
+        "scanning": "Scanning...",
+        "noNetworks": "No networks found",
+        "otherNetwork": "Other network...",
+        "manualSSID": "Network name (SSID)"
+      },
+      "connect": {
+        "title": "Connect to Network",
+        "password": "Password",
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
+        "button": "Connect",
+        "connecting": "Connecting...",
+        "success": "Connected successfully",
+        "selectNetwork": "Select a network"
+      },
+      "hotspot": {
+        "title": "Hotspot",
+        "status": "Hotspot Status",
+        "active": "Active",
+        "inactive": "Not active",
+        "start": "Start Hotspot",
+        "stop": "Stop Hotspot",
+        "starting": "Starting...",
+        "stopping": "Stopping...",
+        "ssid": "SSID",
+        "password": "Password",
+        "ip": "IP Address",
+        "setupLink": "Open WiFi Setup Page",
+        "info": "The hotspot allows nearby devices to connect and configure WiFi credentials."
+      },
+      "errors": {
+        "statusFailed": "Failed to load WiFi status",
+        "scanFailed": "Failed to scan for networks",
+        "connectFailed": "Failed to connect to network",
+        "hotspotStatusFailed": "Failed to load hotspot status",
+        "hotspotStartFailed": "Failed to start hotspot",
+        "hotspotStopFailed": "Failed to stop hotspot"
+      }
+    }
   },
   "auth": {
     "login": "Anmelden",

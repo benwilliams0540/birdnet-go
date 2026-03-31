@@ -18,6 +18,7 @@
   import SpeciesSettingsSection from '$lib/desktop/features/settings/pages/SpeciesSettingsPage.svelte';
   import NotificationsSettingsSection from '$lib/desktop/features/settings/pages/NotificationsSettingsPage.svelte';
   import UserInterfaceSettingsSection from '$lib/desktop/features/settings/pages/UserInterfaceSettingsPage.svelte';
+  import WiFiSettingsSection from '$lib/desktop/features/settings/pages/WiFiSettingsPage.svelte';
   import ErrorAlert from '$lib/desktop/components/ui/ErrorAlert.svelte';
   import LoadingSpinner from '$lib/desktop/components/ui/LoadingSpinner.svelte';
 
@@ -32,6 +33,7 @@
     species: 'species',
     notifications: 'notifications',
     support: 'support',
+    wifi: 'wifi',
   };
 
   // Get current section from a path
@@ -106,6 +108,8 @@
         <NotificationsSettingsSection />
       {:else if currentSection === 'support'}
         <SupportSettingsSection />
+      {:else if currentSection === 'wifi'}
+        <WiFiSettingsSection />
       {:else}
         <div class="rounded-lg bg-[var(--color-base-100)] shadow-sm p-6">
           <div class="text-center py-12 text-[var(--color-base-content)] opacity-70">

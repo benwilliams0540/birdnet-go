@@ -71,6 +71,7 @@ Performance Optimizations:
     Shield,
     LifeBuoy,
     Paintbrush,
+    Wifi,
   } from '@lucide/svelte';
   import { flyout } from '$lib/utils/transitions';
   import { t } from '$lib/i18n';
@@ -228,6 +229,7 @@ Performance Optimizations:
     settingsSecurity: actualRoute === '/ui/settings/security',
     settingsSupport: actualRoute === '/ui/settings/support',
     settingsUserInterface: actualRoute === '/ui/settings/userinterface',
+    settingsWifi: actualRoute === '/ui/settings/wifi',
   }));
 
   // Auto-expand sections when route matches (only when not collapsed)
@@ -270,6 +272,7 @@ Performance Optimizations:
     settingsSecurity: onNavigate ? '/settings/security' : '/ui/settings/security',
     settingsSupport: onNavigate ? '/settings/support' : '/ui/settings/support',
     settingsUserInterface: onNavigate ? '/settings/userinterface' : '/ui/settings/userinterface',
+    settingsWifi: onNavigate ? '/settings/wifi' : '/ui/settings/wifi',
   });
 
   function navigate(url: string) {
@@ -903,6 +906,17 @@ Performance Optimizations:
                     >
                       <LifeBuoy class="size-4 shrink-0" />{t('settings.sections.support')}
                     </button>
+                    <button
+                      onclick={() => navigate(navigationUrls.settingsWifi)}
+                      class={cn(
+                        'flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm transition-colors duration-150',
+                        routeCache.settingsWifi
+                          ? 'menu-subitem-active'
+                          : 'text-[var(--color-base-content)]/80 hover:text-[var(--color-base-content)] hover:menu-hover'
+                      )}
+                    >
+                      <Wifi class="size-4 shrink-0" />{t('settings.sections.wifi')}
+                    </button>
                   </div>
                 </div>
               {/if}
@@ -1031,6 +1045,17 @@ Performance Optimizations:
                     )}
                   >
                     <LifeBuoy class="size-4 shrink-0" />{t('settings.sections.support')}
+                  </button>
+                  <button
+                    onclick={() => navigate(navigationUrls.settingsWifi)}
+                    class={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors duration-150',
+                      routeCache.settingsWifi
+                        ? 'menu-subitem-active'
+                        : 'text-[var(--color-base-content)]/80 hover:text-[var(--color-base-content)] hover:menu-hover'
+                    )}
+                  >
+                    <Wifi class="size-4 shrink-0" />{t('settings.sections.wifi')}
                   </button>
                 </div>
               {/if}

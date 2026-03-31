@@ -361,6 +361,9 @@ func (s *Server) setupRoutes() error {
 		s.apiController.SetAudioLevelChan(s.audioLevelChan)
 	}
 
+	// Register WiFi captive portal provisioning page and captive portal detection redirects.
+	RegisterWifiProvisionRoutes(s.echo)
+
 	// Register SPA routes (after API controller for auth middleware access)
 	s.registerSPARoutes()
 

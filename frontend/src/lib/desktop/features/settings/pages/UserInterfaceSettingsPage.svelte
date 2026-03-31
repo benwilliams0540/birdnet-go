@@ -154,6 +154,7 @@
       }),
       locale: $dashboardSettings?.locale ?? (getLocale() as string),
       spectrogram: $dashboardSettings?.spectrogram ?? DEFAULT_SPECTROGRAM_SETTINGS,
+      timeFormat: $dashboardSettings?.timeFormat ?? '24h',
     },
   });
 
@@ -186,10 +187,12 @@
       {
         locale: store.originalData.realtime?.dashboard?.locale,
         temperatureUnit: store.originalData.realtime?.dashboard?.temperatureUnit,
+        timeFormat: store.originalData.realtime?.dashboard?.timeFormat,
       },
       {
         locale: store.formData.realtime?.dashboard?.locale,
         temperatureUnit: store.formData.realtime?.dashboard?.temperatureUnit,
+        timeFormat: store.formData.realtime?.dashboard?.timeFormat,
       }
     )
   );
@@ -313,10 +316,12 @@
       originalData={{
         locale: store.originalData.realtime?.dashboard?.locale,
         temperatureUnit: store.originalData.realtime?.dashboard?.temperatureUnit,
+        timeFormat: store.originalData.realtime?.dashboard?.timeFormat,
       }}
       currentData={{
         locale: store.formData.realtime?.dashboard?.locale,
         temperatureUnit: store.formData.realtime?.dashboard?.temperatureUnit,
+        timeFormat: store.formData.realtime?.dashboard?.timeFormat,
       }}
     >
       <div class="space-y-6">
@@ -369,6 +374,29 @@
             variant="select"
             groupBy={false}
             onChange={value => updateDashboardSetting('temperatureUnit', value as string)}
+          />
+        </div>
+
+        <!-- Time format -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+          <SelectDropdown
+            options={[
+              {
+                value: '24h',
+                label: t('settings.userInterface.language.timeFormat.options.24h'),
+              },
+              {
+                value: '12h',
+                label: t('settings.userInterface.language.timeFormat.options.12h'),
+              },
+            ]}
+            value={settings.dashboard.timeFormat ?? '24h'}
+            label={t('settings.userInterface.language.timeFormat.label')}
+            helpText={t('settings.userInterface.language.timeFormat.helpText')}
+            disabled={store.isLoading || store.isSaving}
+            variant="select"
+            groupBy={false}
+            onChange={value => updateDashboardSetting('timeFormat', value as string)}
           />
         </div>
       </div>

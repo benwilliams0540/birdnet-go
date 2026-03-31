@@ -233,3 +233,50 @@ export function addDays(dateString: string, days: number): string {
   date.setDate(date.getDate() + days);
   return getLocalDateString(date);
 }
+
+/**
+ * Format a time string (HH:MM:SS or HH:MM) for display, respecting the user's
+ * 12h/24h preference.
+ *
+ * @param timeString - Time string in HH:MM:SS or HH:MM format (24-hour)
+ * @param format - Display format: "24h" (default) or "12h"
+ * @param includeSeconds - Whether to include seconds in the output (defaults to false)
+ * @returns Formatted time string
+ *
+ * @example
+ * formatTimeDisplay('14:30:00', '24h') // Returns '14:30'
+ * formatTimeDisplay('14:30:00', '12h') // Returns '2:30 PM'
+ * formatTimeDisplay('00:05:12', '12h') // Returns '12:05 AM'
+ */
+export function formatTimeDisplay(
+  timeString: string,
+  format: '12h' | '24h' = '24h',
+  includeSeconds: boolean = false
+): string {
+  if (!timeString) return timeString;
+
+  const parts = timeString.split(':');
+  if (parts.length < 2) return timeString;
+
+  const hours = parseInt(parts[0], 10);
+  const minutes = parts[1];
+  const seconds = parts[2] ?? '00';
+
+  if (isNaN(hours)) return timeString;
+
+  if (format === '12h') {
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours % 12 === 0 ? 12 : hours % 12;
+    if (includeSeconds) {
+      return `${hours12}:${minutes}:${seconds} ${period}`;
+    }
+    return `${hours12}:${minutes} ${period}`;
+  }
+
+  // 24h format
+  const paddedHours = String(hours).padStart(2, '0');
+  if (includeSeconds) {
+    return `${paddedHours}:${minutes}:${seconds}`;
+  }
+  return `${paddedHours}:${minutes}`;
+}

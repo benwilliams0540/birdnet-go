@@ -51,7 +51,7 @@ Responsive Breakpoints:
   import SkeletonDailySummary from '$lib/desktop/components/ui/SkeletonDailySummary.svelte';
   import { t } from '$lib/i18n';
   import type { DailySpeciesSummary } from '$lib/types/detection.types';
-  import { getLocalDateString, getLocalTimeString, parseLocalDateString } from '$lib/utils/date';
+  import { getLocalDateString, getLocalTimeString, parseLocalDateString, formatTimeDisplay } from '$lib/utils/date';
   import { buildAppUrl } from '$lib/utils/urlHelpers';
   import { loggers } from '$lib/utils/logger';
   import { LRUCache } from '$lib/utils/LRUCache';
@@ -71,8 +71,61 @@ Responsive Breakpoints:
   import { onMount, untrack } from 'svelte';
   import AnimatedCounter from './AnimatedCounter.svelte';
   import BirdThumbnailPopup from './BirdThumbnailPopup.svelte';
+  import { dashboardSettings } from '$lib/stores/settings';
 
   const logger = loggers.ui;
+
+  // Time format from dashboard settings
+  let timeFormat = $derived(($dashboardSettings?.timeFormat ?? '24h') as '12h' | '24h');
+
+  // Convert a UTC hour (0–23) to the equivalent local-timezone hour (0–23)
+  function utcToLocalHour(utcHour: number): number {
+    const offsetMinutes = new Date().getTimezoneOffset(); // positive = west of UTC
+    return ((utcHour - offsetMinutes / 60) % 24 + 24) % 24;
+  }
+
+  // Format a UTC hour as a compact local-time label for grid headers.
+  // 24h mode: "06"  |  12h mode: "6a" / "6p" / "12a" / "12p"
+  function formatHourLabel(utcHour: number, fmt: '12h' | '24h'): string {
+    const localHour = utcToLocalHour(utcHour);
+    if (fmt === '12h') {
+      const period = localHour >= 12 ? 'p' : 'a';
+      const h12 = localHour % 12 === 0 ? 12 : localHour % 12;
+      return `${h12}${period}`;
+    }
+    return localHour.toString().padStart(2, '0');
+  }
+
+  // Grid starts at local 1 AM; compute the corresponding UTC hour.
+  // getTimezoneOffset() returns minutes west of UTC (positive for UTC-N).
+  // Example: UTC-4 → offsetMinutes=240 → gridStartUtcHour = (1+4) % 24 = 5
+  const gridStartUtcHour = Math.floor(((1 + new Date().getTimezoneOffset() / 60) % 24 + 24) % 24);
+
+  // Bi-hourly and six-hourly windows are anchored to local midnight (not local 1 AM).
+  // This ensures clean even-hour column labels (12a, 2a, 4a, 6a…) that align with the
+  // hourly grid — e.g. detections at 6am appear under "6a" in all three grid sizes.
+  // Example: UTC-4 → localMidnightUtcHour = round(240/60) % 24 = 4
+  const localMidnightUtcHour =
+    ((Math.round(new Date().getTimezoneOffset() / 60)) % 24 + 24) % 24;
+
+  const hourlySequence = Array.from({ length: 24 }, (_, i) => (gridStartUtcHour + i) % 24);
+  const biHourlySequence = Array.from({ length: 12 }, (_, i) => (localMidnightUtcHour + i * 2) % 24);
+  const sixHourlySequence = Array.from({ length: 4 }, (_, i) => (localMidnightUtcHour + i * 6) % 24);
+
+  // Wrap-around count helpers for bi-hourly and six-hourly columns.
+  function getBiHourlyCount(item: DailySpeciesSummary, startUtcHour: number): number {
+    return (
+      (safeArrayAccess(item.hourly_counts, startUtcHour % 24, 0) ?? 0) +
+      (safeArrayAccess(item.hourly_counts, (startUtcHour + 1) % 24, 0) ?? 0)
+    );
+  }
+  function getSixHourlyCount(item: DailySpeciesSummary, startUtcHour: number): number {
+    let sum = 0;
+    for (let i = 0; i < 6; i++) {
+      sum += safeArrayAccess(item.hourly_counts, (startUtcHour + i) % 24, 0) ?? 0;
+    }
+    return sum;
+  }
 
   // Progressive loading timing constants (optimized for Svelte 5)
   const LOADING_PHASES = $state.raw({
@@ -367,12 +420,14 @@ Responsive Breakpoints:
     }
   });
 
-  // Calculate which hour column corresponds to sunrise/sunset
+  // Calculate which UTC hour column corresponds to sunrise/sunset.
+  // Must use getUTCHours() because the grid column indices (0–23) are UTC hours —
+  // using getHours() (local) would place the icon 4 columns off for UTC-4 users.
   const getSunHourFromTime = (timeStr: string): number | null => {
     if (!timeStr) return null;
     try {
       const date = new Date(timeStr);
-      return date.getHours();
+      return date.getUTCHours();
     } catch (parseError) {
       logger.error('Error parsing time', parseError, { timeStr });
       return null;
@@ -531,17 +586,21 @@ Responsive Breakpoints:
       sortable: true,
       className: 'font-medium whitespace-nowrap species-column',
     },
-    // Progress bar column removed to save horizontal space - see mockup design
-    ...Array.from({ length: 24 }, (_, hour) => ({
-      key: `hour_${hour}`,
-      type: 'hourly' as const,
-      hour,
-      header: hour.toString().padStart(2, '0'),
-      align: 'center',
-      className: 'hour-data hourly-count px-0',
-    })),
+    // Hourly columns start at local 1 AM; bi/six-hourly start at local midnight for
+    // clean even-hour label alignment across all three grid sizes.
+    ...Array.from({ length: 24 }, (_, i) => {
+      const hour = (gridStartUtcHour + i) % 24;
+      return {
+        key: `hour_${hour}`,
+        type: 'hourly' as const,
+        hour,
+        header: hour.toString().padStart(2, '0'),
+        align: 'center',
+        className: 'hour-data hourly-count px-0',
+      };
+    }),
     ...Array.from({ length: 12 }, (_, i) => {
-      const hour = i * 2;
+      const hour = (localMidnightUtcHour + i * 2) % 24;
       return {
         key: `bi_hour_${hour}`,
         type: 'bi-hourly' as const,
@@ -552,7 +611,7 @@ Responsive Breakpoints:
       };
     }),
     ...Array.from({ length: 4 }, (_, i) => {
-      const hour = i * 6;
+      const hour = (localMidnightUtcHour + i * 6) % 24;
       return {
         key: `six_hour_${hour}`,
         type: 'six-hourly' as const,
@@ -564,16 +623,21 @@ Responsive Breakpoints:
     }),
   ]);
 
-  // Reactive columns with only dynamic headers - use $derived.by for complex logic
+  // Reactive columns with dynamic headers — species label is translated, hourly labels
+  // are converted from UTC to local time and formatted per the user's time-format preference.
   const columns = $derived.by((): ColumnDefinition[] => {
     // Early return for empty data to prevent unnecessary calculations
     if (staticColumnDefs.length === 0) return [];
 
-    return staticColumnDefs.map(colDef => ({
-      ...colDef,
-      header:
-        colDef.type === 'species' ? t('dashboard.dailySummary.columns.species') : colDef.header,
-    }));
+    return staticColumnDefs.map(colDef => {
+      if (colDef.type === 'species') {
+        return { ...colDef, header: t('dashboard.dailySummary.columns.species') };
+      }
+      if (colDef.hour !== undefined) {
+        return { ...colDef, header: formatHourLabel(colDef.hour, timeFormat) };
+      }
+      return colDef;
+    });
   });
 
   // Track and log unexpected column types once (performance optimization)
@@ -777,7 +841,7 @@ Responsive Breakpoints:
   {#if shouldShow && sunTime}
     {@const parsedDate = parseLocalDateString(sunTime)}
     {#if parsedDate}
-      {@const formattedTime = getLocalTimeString(parsedDate, false)}
+      {@const formattedTime = formatTimeDisplay(getLocalTimeString(parsedDate, false), timeFormat)}
       <div
         class="sun-icon-wrapper"
         title={t(`dashboard.dailySummary.daylight.${sunType}`, { time: formattedTime })}
@@ -873,7 +937,7 @@ Responsive Breakpoints:
 
               <!-- Hourly weather (desktop) -->
               <div class="hourly-grid flex-1 grid">
-                {#each Array(24) as _, hour (hour)}
+                {#each hourlySequence as hour (hour)}
                   {@const emoji = getHourlyWeatherEmoji(hour)}
                   <div
                     class="h-5 flex items-center justify-center text-sm weather-cell"
@@ -886,8 +950,7 @@ Responsive Breakpoints:
 
               <!-- Bi-hourly weather (tablet/mobile) -->
               <div class="bi-hourly-grid flex-1 grid">
-                {#each Array(12) as _, i (i)}
-                  {@const hour = i * 2}
+                {#each biHourlySequence as hour (hour)}
                   {@const emoji = getHourlyWeatherEmoji(hour)}
                   <div
                     class="h-5 flex items-center justify-center text-sm weather-cell"
@@ -900,8 +963,7 @@ Responsive Breakpoints:
 
               <!-- Six-hourly weather (small mobile) -->
               <div class="six-hourly-grid flex-1 grid">
-                {#each Array(4) as _, i (i)}
-                  {@const hour = i * 6}
+                {#each sixHourlySequence as hour (hour)}
                   {@const emoji = getHourlyWeatherEmoji(hour)}
                   <div
                     class="h-5 flex items-center justify-center text-base weather-cell"
@@ -924,7 +986,7 @@ Responsive Breakpoints:
             </div>
             <!-- Hourly daylight (desktop) -->
             <div class="hourly-grid flex-1 grid">
-              {#each Array(24) as _, hour (hour)}
+              {#each hourlySequence as hour (hour)}
                 {@const daylightClass = getDaylightClass(hour)}
                 <div
                   class="h-5 rounded-sm daylight-cell daylight-{daylightClass} relative flex items-center justify-center"
@@ -936,8 +998,7 @@ Responsive Breakpoints:
             </div>
             <!-- Bi-hourly daylight (tablet/mobile) -->
             <div class="bi-hourly-grid flex-1 grid">
-              {#each Array(12) as _, i (i)}
-                {@const hour = i * 2}
+              {#each biHourlySequence as hour (hour)}
                 {@const daylightClass = getDaylightClass(hour)}
                 {@const showSunrise =
                   sunriseHour !== null && hour <= sunriseHour && sunriseHour < hour + 2}
@@ -956,8 +1017,7 @@ Responsive Breakpoints:
             </div>
             <!-- Six-hourly daylight (small mobile) -->
             <div class="six-hourly-grid flex-1 grid">
-              {#each Array(4) as _, i (i)}
-                {@const hour = i * 6}
+              {#each sixHourlySequence as hour (hour)}
                 {@const daylightClass = getDaylightClass(hour)}
                 {@const showSunrise =
                   sunriseHour !== null && hour <= sunriseHour && sunriseHour < hour + 6}
@@ -981,50 +1041,48 @@ Responsive Breakpoints:
             <div class="species-label-col shrink-0"></div>
             <!-- Hourly headers (desktop) -->
             <div class="hourly-grid flex-1 grid text-xs">
-              {#each Array(24) as _, hour (hour)}
+              {#each hourlySequence as hour (hour)}
                 <a
                   href={urlBuilders.hourly(hour, 1)}
                   class="text-center hover:text-[var(--color-primary)] cursor-pointer"
                   style:color="color-mix(in srgb, var(--color-base-content) 50%, transparent)"
                   title={t('dashboard.dailySummary.tooltips.viewHourly', {
-                    hour: hour.toString().padStart(2, '0'),
+                    hour: formatHourLabel(hour, timeFormat),
                   })}
                 >
-                  {hour.toString().padStart(2, '0')}
+                  {formatHourLabel(hour, timeFormat)}
                 </a>
               {/each}
             </div>
             <!-- Bi-hourly headers (tablet/mobile) -->
             <div class="bi-hourly-grid flex-1 grid text-xs">
-              {#each Array(12) as _, i (i)}
-                {@const hour = i * 2}
+              {#each biHourlySequence as hour (hour)}
                 <a
                   href={urlBuilders.hourly(hour, 2)}
                   class="text-center hover:text-[var(--color-primary)] cursor-pointer"
                   style:color="color-mix(in srgb, var(--color-base-content) 50%, transparent)"
                   title={t('dashboard.dailySummary.tooltips.viewBiHourly', {
-                    startHour: hour.toString().padStart(2, '0'),
-                    endHour: (hour + 2).toString().padStart(2, '0'),
+                    startHour: formatHourLabel(hour, timeFormat),
+                    endHour: formatHourLabel(hour + 2, timeFormat),
                   })}
                 >
-                  {hour.toString().padStart(2, '0')}
+                  {formatHourLabel(hour, timeFormat)}
                 </a>
               {/each}
             </div>
             <!-- Six-hourly headers (small mobile) -->
             <div class="six-hourly-grid flex-1 grid text-xs">
-              {#each Array(4) as _, i (i)}
-                {@const hour = i * 6}
+              {#each sixHourlySequence as hour (hour)}
                 <a
                   href={urlBuilders.hourly(hour, 6)}
                   class="text-center hover:text-[var(--color-primary)] cursor-pointer"
                   style:color="color-mix(in srgb, var(--color-base-content) 50%, transparent)"
                   title={t('dashboard.dailySummary.tooltips.viewSixHourly', {
-                    startHour: hour.toString().padStart(2, '0'),
-                    endHour: (hour + 6).toString().padStart(2, '0'),
+                    startHour: formatHourLabel(hour, timeFormat),
+                    endHour: formatHourLabel(hour + 6, timeFormat),
                   })}
                 >
-                  {hour.toString().padStart(2, '0')}
+                  {formatHourLabel(hour, timeFormat)}
                 </a>
               {/each}
             </div>
@@ -1094,7 +1152,7 @@ Responsive Breakpoints:
 
                 <!-- Hourly heatmap cells (desktop) -->
                 <div class="hourly-grid flex-1 grid">
-                  {#each Array(24) as _, hour (hour)}
+                  {#each hourlySequence as hour (hour)}
                     {@const count = safeArrayAccess(item.hourly_counts, hour, 0) ?? 0}
                     {@const intensity = getHeatmapIntensity(count)}
                     <div
@@ -1108,7 +1166,7 @@ Responsive Breakpoints:
                           class="w-full h-full flex items-center justify-center cursor-pointer hover:opacity-80"
                           title={t('dashboard.dailySummary.tooltips.hourlyDetections', {
                             count,
-                            hour: hour.toString().padStart(2, '0'),
+                            hour: formatHourLabel(hour, timeFormat),
                           })}
                         >
                           <AnimatedCounter value={count} />
@@ -1120,9 +1178,8 @@ Responsive Breakpoints:
 
                 <!-- Bi-hourly heatmap cells (tablet/mobile) -->
                 <div class="bi-hourly-grid flex-1 grid">
-                  {#each Array(12) as _, i (i)}
-                    {@const hour = i * 2}
-                    {@const count = renderFunctions['bi-hourly'](item, hour)}
+                  {#each biHourlySequence as hour (hour)}
+                    {@const count = getBiHourlyCount(item, hour)}
                     {@const intensity = getHeatmapIntensity(count)}
                     <div
                       class="heatmap-cell h-8 rounded-sm heatmap-color-{intensity} flex items-center justify-center text-xs font-medium"
@@ -1133,8 +1190,8 @@ Responsive Breakpoints:
                           class="w-full h-full flex items-center justify-center cursor-pointer hover:opacity-80"
                           title={t('dashboard.dailySummary.tooltips.biHourlyDetections', {
                             count,
-                            startHour: hour.toString().padStart(2, '0'),
-                            endHour: (hour + 2).toString().padStart(2, '0'),
+                            startHour: formatHourLabel(hour, timeFormat),
+                            endHour: formatHourLabel(hour + 2, timeFormat),
                           })}
                         >
                           <AnimatedCounter value={count} />
@@ -1146,9 +1203,8 @@ Responsive Breakpoints:
 
                 <!-- Six-hourly heatmap cells (small mobile) -->
                 <div class="six-hourly-grid flex-1 grid">
-                  {#each Array(4) as _, i (i)}
-                    {@const hour = i * 6}
-                    {@const count = renderFunctions['six-hourly'](item, hour)}
+                  {#each sixHourlySequence as hour (hour)}
+                    {@const count = getSixHourlyCount(item, hour)}
                     {@const intensity = getHeatmapIntensity(count)}
                     <div
                       class="heatmap-cell h-8 rounded-sm heatmap-color-{intensity} flex items-center justify-center text-xs font-medium"
@@ -1159,8 +1215,8 @@ Responsive Breakpoints:
                           class="w-full h-full flex items-center justify-center cursor-pointer hover:opacity-80"
                           title={t('dashboard.dailySummary.tooltips.sixHourlyDetections', {
                             count,
-                            startHour: hour.toString().padStart(2, '0'),
-                            endHour: (hour + 6).toString().padStart(2, '0'),
+                            startHour: formatHourLabel(hour, timeFormat),
+                            endHour: formatHourLabel(hour + 6, timeFormat),
                           })}
                         >
                           <AnimatedCounter value={count} />

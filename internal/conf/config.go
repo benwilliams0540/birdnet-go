@@ -143,6 +143,12 @@ const (
 	TemperatureUnitFahrenheit = "fahrenheit"
 )
 
+// Time format constants for display preference
+const (
+	TimeFormat24h = "24h"
+	TimeFormat12h = "12h"
+)
+
 // CustomColors holds the user-defined primary and accent hex colors for the "custom" color scheme.
 type CustomColors struct {
 	Primary string `yaml:"primary,omitempty" json:"primary,omitempty"` // primary hex color, e.g. "#2563eb"
@@ -162,6 +168,7 @@ type Dashboard struct {
 	Layout           DashboardLayout      `yaml:"layout" json:"layout"`                                 // configurable dashboard element layout
 	DefaultAudioGain float64              `yaml:"defaultaudiogain" json:"defaultAudioGain"`             // Default playback gain in dB (0-24)
 	LiveSpectrogram  bool                 `yaml:"livespectrogram" json:"liveSpectrogram"`               // auto-start live spectrogram on dashboard
+	TimeFormat       string               `yaml:"timeformat,omitempty" json:"timeFormat,omitempty"`     // time display format: "24h" or "12h"
 }
 
 // DashboardLayout defines the ordered list of elements displayed on the dashboard.
