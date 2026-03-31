@@ -24,6 +24,7 @@ type LabelLoadResult struct {
 // Model version constants
 const (
 	BirdNET_V2_4 = "BirdNET_V2.4"
+	BirdNET_V3_0 = "BirdNET_V3.0"
 )
 
 // V2.4 model-specific constants
@@ -41,6 +42,9 @@ func GetExpectedLinesV24() int {
 //go:embed data/labels/V2.4/*.txt
 var v24LabelFiles embed.FS
 
+//go:embed data/labels/V3.0/*.txt
+var v30LabelFiles embed.FS
+
 // Logger interface for dependency injection in tests
 type Logger interface {
 	Debug(format string, v ...any)
@@ -51,6 +55,8 @@ func getModelFileSystem(modelVersion string) (fs.FS, error) {
 	switch modelVersion {
 	case BirdNET_V2_4:
 		return v24LabelFiles, nil
+	case BirdNET_V3_0:
+		return v30LabelFiles, nil
 	default:
 		return nil, fmt.Errorf("no embedded filesystem available for model version: %s", modelVersion)
 	}

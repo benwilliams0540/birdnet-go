@@ -1699,17 +1699,31 @@
           "description": "Customize user interface"
         },
         "customClassifier": {
-          "title": "Custom BirdNET Classifier",
-          "description": "Configure custom BirdNET model and label files for specialized detection",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
             "label": "Model Path (Requires restart to apply)",
             "placeholder": "Path to model file",
-            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary. Leave empty to use the default embedded model."
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
             "label": "Label Path (Requires restart to apply)",
             "placeholder": "Path to labels file",
-            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary. Leave empty to use the default embedded labels."
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {

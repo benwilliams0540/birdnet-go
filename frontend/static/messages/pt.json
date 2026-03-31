@@ -1657,17 +1657,31 @@
           "description": "Personalizar a interface do usuário"
         },
         "customClassifier": {
-          "title": "Classificador BirdNET personalizado",
-          "description": "Configure arquivos personalizados de modelo e rótulos do BirdNET para detecção especializada",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
-            "label": "Caminho do modelo (Requer reinicialização para aplicar)",
-            "placeholder": "Caminho para o arquivo do modelo",
-            "helpText": "Caminho para o arquivo de modelo BirdNET externo. Insira o caminho absoluto ou relativo ao binário birdnet-go. Deixe vazio para usar o modelo incorporado padrão."
+            "label": "Model Path (Requires restart to apply)",
+            "placeholder": "Path to model file",
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
-            "label": "Caminho dos rótulos (Requer reinicialização para aplicar)",
-            "placeholder": "Caminho para o arquivo de rótulos",
-            "helpText": "Caminho para o arquivo de rótulos do modelo externo, arquivo .zip ou .txt. Insira o caminho absoluto ou relativo ao binário birdnet-go. Deixe vazio para usar os rótulos incorporados padrão."
+            "label": "Label Path (Requires restart to apply)",
+            "placeholder": "Path to labels file",
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {
@@ -3885,16 +3899,16 @@
       },
       "language": {
         "title": "Idioma e regional",
-        "description": "Idioma, unidades de temperatura e preferências de exibição regional"
-      ,
+        "description": "Idioma, unidades de temperatura e preferências de exibição regional",
         "timeFormat": {
           "label": "Formato de hora",
-          "helpText": "Escolha como as horas s\u00e3o exibidas na interface",
+          "helpText": "Escolha como as horas são exibidas na interface",
           "options": {
             "24h": "24 horas (14:30)",
             "12h": "12 horas (2:30 PM)"
           }
-        }},
+        }
+      },
       "visualContent": {
         "title": "Conteúdo visual",
         "description": "Configure imagens de aves e configurações de exibição do espectrograma"

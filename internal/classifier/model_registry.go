@@ -32,6 +32,18 @@ type ModelInfo struct {
 // ModelRegistry is the single source of truth for all supported models.
 // All model identity lookups, config validation, and spec queries derive from this.
 var ModelRegistry = map[string]ModelInfo{
+	"BirdNET_V3.0": {
+		ID:               "BirdNET_V3.0",
+		Name:             "BirdNET+ V3.0 Preview 3 Global 11K FP32",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "3.0",
+		Description:      "Global model with 11560 species",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_v3"},
+		SupportedLocales: []string{"en"},
+		DefaultLocale:    "en",
+		NumSpecies:       11560,
+	},
 	"BirdNET_V2.4": {
 		ID:               "BirdNET_V2.4",
 		Name:             "BirdNET GLOBAL 6K V2.4",
@@ -61,6 +73,7 @@ var ModelRegistry = map[string]ModelInfo{
 // birdnetVersionToRegistryID maps user-facing BirdNET version strings to registry IDs.
 var birdnetVersionToRegistryID = map[string]string{
 	"2.4": "BirdNET_V2.4",
+	"3.0": "BirdNET_V3.0",
 }
 
 // KnownConfigIDs collects all ConfigAliases from the registry.
@@ -99,6 +112,8 @@ func ResolveBirdNETVersion(version string) (ModelInfo, bool) {
 // This covers ONNX naming conventions and legacy filenames whose prefix
 // no longer matches the (shortened) registry ID.
 var filenamePatterns = map[string]string{
+	"birdnet_v3.0":           "BirdNET_V3.0",
+	"birdnet+_v3.0":          "BirdNET_V3.0",
 	"birdnet_global_6k_v2.4": "BirdNET_V2.4", // legacy TFLite/label filenames
 	"birdnet-v24":            "BirdNET_V2.4",
 	"birdnet_v2.4":           "BirdNET_V2.4",

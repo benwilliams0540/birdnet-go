@@ -61,8 +61,10 @@ export interface MainSettings {
 }
 
 export interface BirdNetSettings {
+  version: string;
   modelPath: string | null;
   labelPath: string | null;
+  onnxRuntimePath: string | null;
   sensitivity: number; // 0.0-1.5
   threshold: number; // 0.0-1.0
   overlap: number; // 0.0-2.9
@@ -814,6 +816,7 @@ function createEmptySettings(): SettingsFormData {
     birdnet: {
       modelPath: '',
       labelPath: '',
+      onnxRuntimePath: '',
       sensitivity: 1.0,
       threshold: 0.3,
       overlap: 0.0,
@@ -1247,6 +1250,9 @@ export const settingsActions = {
       }
       if (coercedFormData.birdnet.labelPath?.trim() === '') {
         coercedFormData.birdnet.labelPath = null;
+      }
+      if (coercedFormData.birdnet.onnxRuntimePath?.trim() === '') {
+        coercedFormData.birdnet.onnxRuntimePath = null;
       }
 
       await settingsAPI.save(coercedFormData);

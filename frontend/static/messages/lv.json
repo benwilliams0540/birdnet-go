@@ -1698,17 +1698,31 @@
           "description": "Pielāgot lietotāja saskarni"
         },
         "customClassifier": {
-          "title": "Pielāgots BirdNET klasifikators",
-          "description": "Konfigurēt pielāgota BirdNET modeļa un etiķešu failus specializētai noteikšanai",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
-            "label": "Modeļa ceļš (Piemērošanai nepieciešama restartēšana)",
-            "placeholder": "Ceļš uz modeļa failu",
-            "helpText": "Ceļš uz ārējo BirdNET modeļa failu. Ievadiet absolūto vai relatīvo ceļu attiecībā pret birdnet-go bināro failu. Atstājiet tukšu, lai izmantotu noklusējuma iegulto modeli."
+            "label": "Model Path (Requires restart to apply)",
+            "placeholder": "Path to model file",
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
-            "label": "Etiķešu ceļš (Piemērošanai nepieciešama restartēšana)",
-            "placeholder": "Ceļš uz etiķešu failu",
-            "helpText": "Ceļš uz ārējo modeļa etiķešu failu, .zip vai .txt fails. Ievadiet absolūto vai relatīvo ceļu attiecībā pret birdnet-go bināro failu. Atstājiet tukšu, lai izmantotu noklusējuma iegultās etiķetes."
+            "label": "Label Path (Requires restart to apply)",
+            "placeholder": "Path to labels file",
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {
@@ -3872,16 +3886,16 @@
       },
       "language": {
         "title": "Valoda un reģions",
-        "description": "Valoda, temperatūras vienības un reģionālie attēlošanas iestatījumi"
-      ,
+        "description": "Valoda, temperatūras vienības un reģionālie attēlošanas iestatījumi",
         "timeFormat": {
-          "label": "Laika form\u0101ts",
-          "helpText": "Izv\u0113lieties, k\u0101 laiks tiek par\u0101d\u012bts saskarn\u0113",
+          "label": "Laika formāts",
+          "helpText": "Izvēlieties, kā laiks tiek parādīts saskarnē",
           "options": {
             "24h": "24 stundas (14:30)",
             "12h": "12 stundas (2:30 PM)"
           }
-        }},
+        }
+      },
       "visualContent": {
         "title": "Vizuālais saturs",
         "description": "Konfigurēt putnu attēlu un spektrogrammu attēlošanas iestatījumus"

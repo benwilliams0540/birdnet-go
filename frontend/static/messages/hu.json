@@ -1699,17 +1699,31 @@
           "description": "Felhasználói felület testreszabása"
         },
         "customClassifier": {
-          "title": "Egyedi BirdNET osztályozó",
-          "description": "Speciális detektáláshoz egyedi BirdNET modell és címke fájlok konfigurálása",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
-            "label": "Modell útvonal (alkalmazás újraindítást igényel)",
-            "placeholder": "Modell fájl útvonala",
-            "helpText": "Külső BirdNET modell fájl útvonala. Adjon meg abszolút vagy relatív útvonalat a birdnet-go binárishoz. Üresen hagyva az alapértelmezett beágyazott modellt használja."
+            "label": "Model Path (Requires restart to apply)",
+            "placeholder": "Path to model file",
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
-            "label": "Címke útvonal (alkalmazás újraindítást igényel)",
-            "placeholder": "Címkék fájl útvonala",
-            "helpText": "Külső modell címkék fájl útvonala, .zip vagy .txt fájl. Adjon meg abszolút vagy relatív útvonalat a birdnet-go binárishoz. Üresen hagyva az alapértelmezett beágyazott címkéket használja."
+            "label": "Label Path (Requires restart to apply)",
+            "placeholder": "Path to labels file",
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {
@@ -3873,16 +3887,16 @@
       },
       "language": {
         "title": "Nyelv és regionális",
-        "description": "Nyelv, hőmérsékleti egységek és regionális megjelenítési beállítások"
-      ,
+        "description": "Nyelv, hőmérsékleti egységek és regionális megjelenítési beállítások",
         "timeFormat": {
-          "label": "Id\u0151form\u00e1tum",
-          "helpText": "V\u00e1lassza meg, hogyan jelenjenek meg az id\u0151pontok a fel\u00fcleten",
+          "label": "Időformátum",
+          "helpText": "Válassza meg, hogyan jelenjenek meg az időpontok a felületen",
           "options": {
-            "24h": "24 \u00f3r\u00e1s (14:30)",
-            "12h": "12 \u00f3r\u00e1s (2:30 PM)"
+            "24h": "24 órás (14:30)",
+            "12h": "12 órás (2:30 PM)"
           }
-        }},
+        }
+      },
       "visualContent": {
         "title": "Vizuális tartalom",
         "description": "Madár képek és spektrogram megjelenítési beállítások konfigurálása"

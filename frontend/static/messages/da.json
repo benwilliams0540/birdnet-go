@@ -1698,17 +1698,31 @@
           "description": "Tilpas brugergrænsefladen"
         },
         "customClassifier": {
-          "title": "Tilpasset BirdNET-klassifikator",
-          "description": "Konfigurer tilpassede BirdNET-model- og labelfiler til specialiseret detektion",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
-            "label": "Modelsti (Kræver genstart for at træde i kraft)",
-            "placeholder": "Sti til modelfil",
-            "helpText": "Sti til ekstern BirdNET-modelfil. Angiv absolut eller relativ sti til birdnet-go-binærfilen. Lad feltet være tomt for at bruge den standard indlejrede model."
+            "label": "Model Path (Requires restart to apply)",
+            "placeholder": "Path to model file",
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
-            "label": "Labelsti (Kræver genstart for at træde i kraft)",
-            "placeholder": "Sti til labelfil",
-            "helpText": "Sti til ekstern modellabelfil, .zip- eller .txt-fil. Angiv absolut eller relativ sti til birdnet-go-binærfilen. Lad feltet være tomt for at bruge de standard indlejrede labels."
+            "label": "Label Path (Requires restart to apply)",
+            "placeholder": "Path to labels file",
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {
@@ -3872,16 +3886,16 @@
       },
       "language": {
         "title": "Sprog og regional",
-        "description": "Sprog, temperaturenheder og regionale visningspræferencer"
-      ,
+        "description": "Sprog, temperaturenheder og regionale visningspræferencer",
         "timeFormat": {
           "label": "Tidsformat",
-          "helpText": "V\u00e6lg hvordan tider vises i gr\u00e6nsefladen",
+          "helpText": "Vælg hvordan tider vises i grænsefladen",
           "options": {
             "24h": "24-timers (14:30)",
             "12h": "12-timers (2:30 PM)"
           }
-        }},
+        }
+      },
       "visualContent": {
         "title": "Visuelt indhold",
         "description": "Konfigurer fuglebilleder og indstillinger for spektrogramvisning"

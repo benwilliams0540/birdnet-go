@@ -106,6 +106,7 @@
   let settings = $derived({
     main: $mainSettings || { name: '' },
     birdnet: $birdnetSettings || {
+      version: '2.4',
       sensitivity: 1.0,
       threshold: 0.8,
       overlap: 0.0,
@@ -177,6 +178,7 @@
   let detectionTabHasChanges = $derived(
     hasSettingsChanged(
       {
+        version: store.originalData.birdnet?.version,
         sensitivity: store.originalData.birdnet?.sensitivity,
         threshold: store.originalData.birdnet?.threshold,
         overlap: store.originalData.birdnet?.overlap,
@@ -187,6 +189,7 @@
         rangeFilter: store.originalData.birdnet?.rangeFilter,
       },
       {
+        version: store.formData.birdnet?.version,
         sensitivity: store.formData.birdnet?.sensitivity,
         threshold: store.formData.birdnet?.threshold,
         overlap: store.formData.birdnet?.overlap,
@@ -1493,6 +1496,7 @@
       title={t('settings.main.sections.birdnet.title')}
       description={t('settings.main.sections.birdnet.description')}
       originalData={{
+        version: store.originalData.birdnet?.version,
         sensitivity: store.originalData.birdnet?.sensitivity,
         threshold: store.originalData.birdnet?.threshold,
         overlap: store.originalData.birdnet?.overlap,
@@ -1500,6 +1504,7 @@
         threads: store.originalData.birdnet?.threads,
       }}
       currentData={{
+        version: settings.birdnet.version,
         sensitivity: settings.birdnet.sensitivity,
         threshold: settings.birdnet.threshold,
         overlap: settings.birdnet.overlap,
@@ -1508,6 +1513,19 @@
       }}
     >
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <SelectDropdown
+          id="birdnet-version"
+          value={settings.birdnet.version ?? '2.4'}
+          label="Model Version"
+          options={[
+            { value: '2.4', label: 'BirdNET Global 6K V2.4' },
+            { value: '3.0', label: 'BirdNET+ V3.0 Preview 3 Global 11K' }
+          ]}
+          disabled={store.isLoading || store.isSaving}
+          onChange={value => updateBirdnetSetting('version', typeof value === 'string' ? value : value[0])}
+          helpText="Select between the standard V2.4 model and the experimental V3.0 model."
+        />
+
         <NumberField
           label={t('settings.main.fields.sensitivity.label')}
           value={settings.birdnet.sensitivity}
@@ -1738,10 +1756,12 @@
       originalData={{
         modelPath: store.originalData.birdnet?.modelPath,
         labelPath: store.originalData.birdnet?.labelPath,
+        onnxRuntimePath: (store.originalData.birdnet as { onnxRuntimePath?: string | null })?.onnxRuntimePath,
       }}
       currentData={{
         modelPath: settings.birdnet.modelPath,
         labelPath: settings.birdnet.labelPath,
+        onnxRuntimePath: settings.birdnet.onnxRuntimePath,
       }}
     >
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1763,6 +1783,16 @@
           helpText={t('settings.main.sections.customClassifier.labelPath.helpText')}
           disabled={store.isLoading || store.isSaving}
           onchange={value => updateBirdnetSetting('labelPath', value)}
+        />
+
+        <TextInput
+          id="onnx-runtime-path"
+          value={settings.birdnet.onnxRuntimePath ?? ''}
+          label={t('settings.main.sections.customClassifier.onnxRuntimePath.label')}
+          placeholder={t('settings.main.sections.customClassifier.onnxRuntimePath.placeholder')}
+          helpText={t('settings.main.sections.customClassifier.onnxRuntimePath.helpText')}
+          disabled={store.isLoading || store.isSaving}
+          onchange={value => updateBirdnetSetting('onnxRuntimePath', value)}
         />
       </div>
     </SettingsSection>

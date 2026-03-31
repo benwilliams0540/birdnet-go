@@ -1668,17 +1668,31 @@
           "description": "Prispôsobenie používateľského rozhrania"
         },
         "customClassifier": {
-          "title": "Vlastný klasifikátor BirdNET",
-          "description": "Konfigurácia vlastného modelu BirdNET a súborov štítkov pre špecializovanú detekciu",
+          "title": "BirdNET Model",
+          "description": "Select a BirdNET model version or configure a custom model path",
+          "modelVersion": {
+            "label": "Model Version (Requires restart to apply)",
+            "helpText": "Select which BirdNET model to use for bird sound detection",
+            "options": {
+              "v24": "BirdNET V2.4 (Default, 6,523 species)",
+              "v30": "BirdNET V3.0 Preview (11,560 species)",
+              "custom": "Custom..."
+            }
+          },
           "modelPath": {
-            "label": "Cesta k modelu (vyžaduje reštart pre použitie)",
-            "placeholder": "Cesta k súboru modelu",
-            "helpText": "Cesta k externému súboru modelu BirdNET. Zadajte absolútnu alebo relatívnu cestu k binárnemu súboru birdnet-go. Nechajte prázdne pre použitie predvoleného vloženého modelu."
+            "label": "Model Path (Requires restart to apply)",
+            "placeholder": "Path to model file",
+            "helpText": "Path to external BirdNET model file. Enter absolute or relative path to birdnet-go binary."
           },
           "labelPath": {
-            "label": "Cesta k štítkom (vyžaduje reštart pre použitie)",
-            "placeholder": "Cesta k súboru štítkov",
-            "helpText": "Cesta k súboru štítkov externého modelu, súbor .zip alebo .txt. Zadajte absolútnu alebo relatívnu cestu k binárnemu súboru birdnet-go. Nechajte prázdne pre použitie predvolených vložených štítkov."
+            "label": "Label Path (Requires restart to apply)",
+            "placeholder": "Path to labels file",
+            "helpText": "Path to external model labels file, .zip or .txt file. Enter absolute or relative path to birdnet-go binary."
+          },
+          "onnxRuntimePath": {
+            "label": "ONNX Runtime Path (Requires restart to apply)",
+            "placeholder": "/opt/birdnet-go/lib/libonnxruntime.so.1.24.1",
+            "helpText": "Path to the ONNX Runtime shared library. Required when using ONNX models such as BirdNET V3.0."
           }
         },
         "dynamicThreshold": {
@@ -3848,16 +3862,16 @@
       },
       "language": {
         "title": "Jazyk a regionálne",
-        "description": "Jazyk, jednotky teploty a regionálne predvoľby zobrazenia"
-      ,
+        "description": "Jazyk, jednotky teploty a regionálne predvoľby zobrazenia",
         "timeFormat": {
-          "label": "Form\u00e1t \u010dasu",
-          "helpText": "Vyberte, ako sa \u010dasy zobrazuj\u00fa v rozhran\u00ed",
+          "label": "Formát času",
+          "helpText": "Vyberte, ako sa časy zobrazujú v rozhraní",
           "options": {
-            "24h": "24-hodinov\u00fd (14:30)",
-            "12h": "12-hodinov\u00fd (2:30 PM)"
+            "24h": "24-hodinový (14:30)",
+            "12h": "12-hodinový (2:30 PM)"
           }
-        }},
+        }
+      },
       "visualContent": {
         "title": "Vizuálny obsah",
         "description": "Nakonfigurujte obrázky vtákov a nastavenia zobrazenia spektrogramu"

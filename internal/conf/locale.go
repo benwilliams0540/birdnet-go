@@ -20,8 +20,9 @@ const DefaultFallbackLocale = "en-uk"
 
 // Label file configurations for different model versions
 type LabelConfig struct {
-	FilePattern string // Pattern for label files, e.g. "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt"
-	BasePath    string // Base path for the label files, e.g. "V2.4/"
+	FilePattern       string // Pattern for label files, e.g. "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt"
+	BasePath          string // Base path for the label files, e.g. "V2.4/"
+	LocaleIndependent bool   // If true, FilePattern is used as-is (no locale substitution)
 }
 
 // ModelLabelMapping maps model versions to their corresponding label configurations
@@ -29,6 +30,11 @@ var ModelLabelMapping = map[string]LabelConfig{
 	"BirdNET_V2.4": {
 		FilePattern: "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt",
 		BasePath:    "V2.4/",
+	},
+	"BirdNET_V3.0": {
+		FilePattern:       "BirdNET_V3.0_Labels_en.txt",
+		BasePath:          "V3.0/",
+		LocaleIndependent: true,
 	},
 }
 
@@ -208,6 +214,11 @@ func GetLabelFilename(modelVersion, localeCode string) (string, error) {
 			Context("validation_type", "model-version-support").
 			Context("model_version", modelVersion).
 			Build()
+	}
+
+	// Locale-independent models always use the same file
+	if config.LocaleIndependent {
+		return config.BasePath + config.FilePattern, nil
 	}
 
 	// Get the file identifier for the locale code
