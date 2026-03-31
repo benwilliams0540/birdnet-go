@@ -125,13 +125,13 @@ func (c *Controller) GetWiFiStatus(ctx echo.Context) error {
 
 	state, connectivity := parseNmcliGeneralStatus(string(out))
 
-	// Fetch the active connection name for the wireless interface.
+	// Fetch the SSID of the active connection on the wireless interface.
 	activeName := ""
 	conOut, err := exec.CommandContext(ctx.Request().Context(),
-		nmcliPath, "-t", "-f", "NAME,TYPE,DEVICE", "con", "show", "--active",
+		nmcliPath, "-t", "-f", "ACTIVE,SSID", "dev", "wifi",
 	).Output()
 	if err == nil {
-		activeName = parseActiveWiFiConnection(string(conOut))
+		activeName = parseActiveSSID(string(conOut))
 	}
 
 	c.logInfoIfEnabled("WiFi status queried",
@@ -317,19 +317,27 @@ func parseNmcliGeneralStatus(output string) (state, connectivity string) {
 	return line, ""
 }
 
-// parseActiveWiFiConnection parses the output of:
-// nmcli -t -f NAME,TYPE,DEVICE con show --active
-// and returns the NAME of the first "wifi" type connection on wlan0.
-func parseActiveWiFiConnection(output string) string {
+// parseActiveSSID parses the output of:
+// nmcli -t -f ACTIVE,SSID dev wifi
+// and returns the SSID of the currently active WiFi connection.
+func parseActiveSSID(output string) string {
 	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// Format: NAME:TYPE:DEVICE
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) == 3 && parts[1] == "wifi" && parts[2] == wifiInterface { //nolint:mnd // three fields
-			return parts[0]
+		// Format: ACTIVE:SSID — split on first unescaped colon.
+		colonIdx := strings.Index(line, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		if line[:colonIdx] != "yes" {
+			continue
+		}
+		// Unescape \: → : in the SSID.
+		ssid := strings.ReplaceAll(line[colonIdx+1:], `\:`, ":")
+		if ssid != "" {
+			return ssid
 		}
 	}
 	return ""
