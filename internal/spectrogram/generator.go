@@ -29,10 +29,12 @@ const (
 	// Increased to 90s to accommodate slow storage (e.g., SD cards) under I/O pressure
 	defaultGenerationTimeout = 90 * time.Second
 
-	// ffmpegFallbackTimeout is the timeout for FFmpeg fallback when Sox fails.
-	// This is independent of the Sox timeout to ensure FFmpeg has adequate time
+	// ffmpegFallbackTimeout is the timeout for the FFmpeg fallback when Sox fails.
+	// This is independent of the Sox timeout so that FFmpeg has adequate time
 	// even when Sox consumed most of the original timeout before failing (fixes #1503).
-	ffmpegFallbackTimeout = 60 * time.Second
+	// Set to 5 minutes to accommodate larger spectrograms (e.g. 1026px) on
+	// low-power ARM hardware where FFmpeg alone can take well over 60 seconds.
+	ffmpegFallbackTimeout = 5 * time.Minute
 
 	// soxWaitFallbackTimeout is the fallback timeout for waiting on Sox process completion
 	soxWaitFallbackTimeout = 30 * time.Second
@@ -97,9 +99,12 @@ func fftFriendlyHeight(width int) int {
 // FFmpeg showspectrumpic color mode constants for style mapping.
 // These are the closest FFmpeg equivalents to the Sox style presets.
 const (
-	// ffmpegColorDefault is FFmpeg's default colorful spectrogram (channel mode).
-	// Matches Sox default style (colorful with dark background).
-	ffmpegColorDefault = "channel"
+	// ffmpegColorDefault produces a rainbow colormap spectrogram in FFmpeg.
+	// Maps amplitude to rainbow colors (violet/blue → cyan → green → yellow → red)
+	// for mono bird recordings. This matches the visual intent of Sox's default
+	// colorful style. "channel" was previously used here but produces a single
+	// white-on-black rendering for mono audio, which looks grayscale rather than colorful.
+	ffmpegColorDefault = "rainbow"
 
 	// ffmpegColorIntensity produces a grayscale spectrogram in FFmpeg.
 	// Matches Sox monochrome mode (-m) used by scientific styles.

@@ -1687,6 +1687,49 @@ func (c *Controller) GenerateSpectrogramByID(ctx echo.Context) error {
 		}
 	})
 
+	// Pre-generate the review-modal companion spectrogram (lg, non-raw) so it is
+	// ready before the user opens the detection detail page.  We only do this when
+	// the primary request comes from the dashboard card (md, raw=true) to avoid
+	// triggering a recursive chain.
+	if params.width == SpectrogramSizeMd && params.raw {
+		companionWidth := SpectrogramSizeLg
+		_, _, _, companionRelPath := buildSpectrogramPaths(relAudioPath, companionWidth, false, params.style, params.dynamicRange)
+		companionKey := buildSpectrogramKey(companionRelPath, companionWidth, false)
+
+		// Skip if the companion file already exists on disk or generation is in-flight.
+		companionMissing := true
+		if statInfo, statErr := c.SFS.StatRel(companionRelPath); statErr == nil && statInfo.Size() > 0 {
+			companionMissing = false
+		}
+		if companionMissing {
+			if _, inFlight := spectrogramQueue.Load(companionKey); !inFlight {
+				c.initializeQueueStatus(companionKey)
+				c.wg.Go(func() {
+					defer func() {
+						if r := recover(); r != nil {
+							c.logErrorIfEnabled("Panic in companion spectrogram pre-generation",
+								logger.String("note_id", noteID),
+								logger.Any("panic", r))
+						}
+					}()
+
+					bgCtx, cancel := context.WithTimeout(c.ctx, spectrogramGenerationTimeout)
+					defer cancel()
+
+					if _, err := c.generateSpectrogram(bgCtx, clipPath, companionWidth, false, params.style, params.dynamicRange); err != nil {
+						c.updateQueueStatus(companionKey, spectrogramStatusFailed, 0, "Pre-generation failed: "+err.Error())
+						c.logInfoIfEnabled("Companion spectrogram pre-generation failed",
+							logger.String("note_id", noteID),
+							logger.Error(err))
+					} else {
+						c.logInfoIfEnabled("Companion spectrogram pre-generated",
+							logger.String("note_id", noteID))
+					}
+				})
+			}
+		}
+	}
+
 	// Return 202 Accepted immediately - client should poll status endpoint
 	// If we initialized queue status, return it; otherwise return generic queued response
 	responseData := map[string]any{
