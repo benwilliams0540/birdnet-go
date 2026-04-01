@@ -25,9 +25,19 @@ type LabelConfig struct {
 	LocaleIndependent bool   // If true, FilePattern is used as-is (no locale substitution)
 }
 
-// ModelLabelMapping maps model versions to their corresponding label configurations
+// ModelLabelMapping maps model versions to their corresponding label configurations.
+// INT8 quantized variants use the same V2.4 label files as the base model.
 var ModelLabelMapping = map[string]LabelConfig{
 	"BirdNET_V2.4": {
+		FilePattern: "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt",
+		BasePath:    "V2.4/",
+	},
+	// INT8 quantized ONNX models share V2.4 label files.
+	"BirdNET_V2.4_INT8": {
+		FilePattern: "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt",
+		BasePath:    "V2.4/",
+	},
+	"BirdNET_V2.4_INT8_CNN": {
 		FilePattern: "BirdNET_GLOBAL_6K_V2.4_Labels_%s.txt",
 		BasePath:    "V2.4/",
 	},

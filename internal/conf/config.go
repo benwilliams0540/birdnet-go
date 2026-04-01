@@ -1109,6 +1109,12 @@ type BirdNETConfig struct {
 	Labels             []string            `yaml:"-" json:"-"`                                                 // list of available species labels, runtime value
 	UseXNNPACK         bool                `yaml:"usexnnpack" json:"useXnnpack"`                               // true to use XNNPACK delegate for inference acceleration
 	ONNXRuntimePath    string              `yaml:"onnxruntimepath,omitempty" json:"onnxRuntimePath,omitempty"` // path to ONNX Runtime shared library (required for ONNX models)
+	// QNN hardware acceleration settings (Qualcomm Neural Network SDK)
+	// Requires birdnet-go built with -tags qnn and QNN model library deployed.
+	// QNNBackend selects the inference backend: "gpu" (Adreno OpenCL), "htp" (Hexagon DSP), or "" (disabled).
+	QNNBackend     string `yaml:"qnnbackend,omitempty" json:"qnnBackend,omitempty"`       // QNN backend: "gpu", "htp", or "" (CPU fallback)
+	QNNLibDir      string `yaml:"qnnlibdir,omitempty" json:"qnnLibDir,omitempty"`          // directory containing libQnnGpu.so / libQnnHtp.so + libQnnSystem.so
+	QNNModelLibDir string `yaml:"qnnmodellibdir,omitempty" json:"qnnModelLibDir,omitempty"` // directory containing compiled QNN model libraries (.so)
 }
 
 // RangeFilterSettings contains settings for the range filter

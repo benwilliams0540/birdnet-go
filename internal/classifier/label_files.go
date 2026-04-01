@@ -50,10 +50,11 @@ type Logger interface {
 	Debug(format string, v ...any)
 }
 
-// getModelFileSystem returns the appropriate embedded filesystem for the given model version
+// getModelFileSystem returns the appropriate embedded filesystem for the given model version.
+// INT8 quantized variants share label files with their base V2.4 model.
 func getModelFileSystem(modelVersion string) (fs.FS, error) {
 	switch modelVersion {
-	case BirdNET_V2_4:
+	case BirdNET_V2_4, "BirdNET_V2.4_INT8", "BirdNET_V2.4_INT8_CNN":
 		return v24LabelFiles, nil
 	case BirdNET_V3_0:
 		return v30LabelFiles, nil

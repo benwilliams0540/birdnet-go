@@ -74,6 +74,11 @@ export interface BirdNetSettings {
   longitude: number;
   locationConfigured: boolean; // true when location has been explicitly configured
   rangeFilter: RangeFilterSettings;
+  // QNN hardware acceleration (Qualcomm Neural Network SDK)
+  // Requires birdnet-go built with -tags qnn and QAIRT SDK libraries deployed.
+  qnnBackend: string | null; // "gpu", "htp", or null/""  (disabled)
+  qnnLibDir: string | null; // directory containing libQnnGpu.so / libQnnSystem.so
+  qnnModelLibDir: string | null; // directory containing libmodel_net.so or context binary
 }
 
 export interface DynamicThresholdSettings {
@@ -825,6 +830,9 @@ function createEmptySettings(): SettingsFormData {
       latitude: 0,
       longitude: 0,
       locationConfigured: false,
+      qnnBackend: '',
+      qnnLibDir: '',
+      qnnModelLibDir: '',
       rangeFilter: {
         threshold: 0.03,
         speciesCount: null,
@@ -1253,6 +1261,15 @@ export const settingsActions = {
       }
       if (coercedFormData.birdnet.onnxRuntimePath?.trim() === '') {
         coercedFormData.birdnet.onnxRuntimePath = null;
+      }
+      if (coercedFormData.birdnet.qnnBackend?.trim() === '') {
+        coercedFormData.birdnet.qnnBackend = null;
+      }
+      if (coercedFormData.birdnet.qnnLibDir?.trim() === '') {
+        coercedFormData.birdnet.qnnLibDir = null;
+      }
+      if (coercedFormData.birdnet.qnnModelLibDir?.trim() === '') {
+        coercedFormData.birdnet.qnnModelLibDir = null;
       }
 
       await settingsAPI.save(coercedFormData);

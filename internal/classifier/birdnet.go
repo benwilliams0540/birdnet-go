@@ -189,14 +189,32 @@ func isONNXModel(path string) bool {
 }
 
 // initializeModel loads and initializes the primary BirdNET model.
-// Dispatches to ONNX or TFLite backend based on the model file extension or registry metadata.
+//
+// Dispatch priority:
+//  1. QNN hardware acceleration — when QNNBackend is set and qnn build tag is active.
+//     Falls back to ONNX CPU if QNN initialization fails (logs a warning).
+//  2. ONNX Runtime — when the model path ends in .onnx, or the registry entry
+//     declares IsONNX (e.g. embedded quantized models).
+//  3. TFLite — for all other cases.
 func (bn *BirdNET) initializeModel() error {
-	// Use ONNX backend if the path points to a .onnx file, or if the registry
-	// entry declares this model as ONNX-only (e.g. embedded quantized models).
+	// 1. QNN hardware acceleration path.
+	if isQNNSupported() && bn.Settings.BirdNET.QNNBackend != "" {
+		if err := bn.initializeQNNModel(); err != nil {
+			// Non-fatal: log and fall through to ONNX CPU.
+			GetLogger().Warn("QNN initialization failed, falling back to ONNX CPU",
+				logger.String("backend", bn.Settings.BirdNET.QNNBackend),
+				logger.String("error", err.Error()))
+		} else {
+			return nil
+		}
+	}
+
+	// 2. ONNX Runtime path.
 	if isONNXModel(bn.Settings.BirdNET.ModelPath) || bn.ModelInfo.IsONNX {
 		return bn.initializeONNXModel()
 	}
 
+	// 3. TFLite path.
 	return bn.initializeTFLiteModel()
 }
 

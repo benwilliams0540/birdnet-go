@@ -74,6 +74,21 @@ var ModelRegistry = map[string]ModelInfo{
 		NumSpecies:    6523,
 		IsONNX:        true,
 	},
+	"BirdNET_V2.4_INT8_CNN": {
+		ID:               "BirdNET_V2.4_INT8_CNN",
+		Name:             "BirdNET GLOBAL 6K V2.4 INT8 CNN",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "Global model with 6523 species, INT8 quantized CNN-architecture ONNX for QNN hardware acceleration",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_int8_cnn"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6523,
+		IsONNX:        true,
+	},
 	"Perch_V2": {
 		ID:               "Perch_V2",
 		Name:             "Google Perch V2",
@@ -88,9 +103,10 @@ var ModelRegistry = map[string]ModelInfo{
 
 // birdnetVersionToRegistryID maps user-facing BirdNET version strings to registry IDs.
 var birdnetVersionToRegistryID = map[string]string{
-	"2.4":      "BirdNET_V2.4",
-	"2.4-int8": "BirdNET_V2.4_INT8",
-	"3.0":      "BirdNET_V3.0",
+	"2.4":          "BirdNET_V2.4",
+	"2.4-int8":     "BirdNET_V2.4_INT8",
+	"2.4-int8-cnn": "BirdNET_V2.4_INT8_CNN",
+	"3.0":          "BirdNET_V3.0",
 }
 
 // KnownConfigIDs collects all ConfigAliases from the registry.
@@ -137,6 +153,7 @@ var filenamePatterns = map[string]string{
 	"birdnet-v2.4":           "BirdNET_V2.4",
 	"birdnet-go_classifier":  "BirdNET_V2.4", // custom-named classifier builds
 	"birdnet_int8":           "BirdNET_V2.4_INT8",
+	"birdnet_int8_cnn":       "BirdNET_V2.4_INT8_CNN",
 	"perch_v2":               "Perch_V2",
 	"perch-v2":               "Perch_V2",
 }

@@ -27,6 +27,11 @@ var metaModelDataV2 []byte
 //go:embed data/birdnet_int8.onnx
 var int8ModelData []byte
 
+// Embedded INT8 CNN ONNX model data.
+//
+//go:embed data/birdnet_int8_cnn.onnx
+var int8CNNModelData []byte
+
 // hasEmbeddedModels indicates whether models are embedded in the binary
 // This is a var instead of const to allow test overrides
 var hasEmbeddedModels = true
@@ -37,6 +42,8 @@ func GetEmbeddedONNXData(registryID string) ([]byte, bool) {
 	switch registryID {
 	case "BirdNET_V2.4_INT8":
 		return int8ModelData, true
+	case "BirdNET_V2.4_INT8_CNN":
+		return int8CNNModelData, true
 	}
 	return nil, false
 }
