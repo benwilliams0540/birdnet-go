@@ -27,6 +27,7 @@ type ModelInfo struct {
 	DefaultLocale    string    // Default locale if none is specified
 	NumSpecies       int       // Number of species in the model
 	CustomPath       string    // Path to custom model file, if any
+	IsONNX           bool      // True when the model must be loaded via the ONNX backend
 }
 
 // ModelRegistry is the single source of truth for all supported models.
@@ -58,6 +59,21 @@ var ModelRegistry = map[string]ModelInfo{
 		DefaultLocale: "en-uk",
 		NumSpecies:    6523,
 	},
+	"BirdNET_V2.4_INT8": {
+		ID:               "BirdNET_V2.4_INT8",
+		Name:             "BirdNET GLOBAL 6K V2.4 INT8",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "Global model with 6523 species, INT8 quantized ONNX for hardware acceleration",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_int8"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6523,
+		IsONNX:        true,
+	},
 	"Perch_V2": {
 		ID:               "Perch_V2",
 		Name:             "Google Perch V2",
@@ -72,8 +88,9 @@ var ModelRegistry = map[string]ModelInfo{
 
 // birdnetVersionToRegistryID maps user-facing BirdNET version strings to registry IDs.
 var birdnetVersionToRegistryID = map[string]string{
-	"2.4": "BirdNET_V2.4",
-	"3.0": "BirdNET_V3.0",
+	"2.4":      "BirdNET_V2.4",
+	"2.4-int8": "BirdNET_V2.4_INT8",
+	"3.0":      "BirdNET_V3.0",
 }
 
 // KnownConfigIDs collects all ConfigAliases from the registry.
@@ -119,6 +136,7 @@ var filenamePatterns = map[string]string{
 	"birdnet_v2.4":           "BirdNET_V2.4",
 	"birdnet-v2.4":           "BirdNET_V2.4",
 	"birdnet-go_classifier":  "BirdNET_V2.4", // custom-named classifier builds
+	"birdnet_int8":           "BirdNET_V2.4_INT8",
 	"perch_v2":               "Perch_V2",
 	"perch-v2":               "Perch_V2",
 }

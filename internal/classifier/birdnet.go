@@ -189,10 +189,11 @@ func isONNXModel(path string) bool {
 }
 
 // initializeModel loads and initializes the primary BirdNET model.
-// Dispatches to ONNX or TFLite backend based on the model file extension.
+// Dispatches to ONNX or TFLite backend based on the model file extension or registry metadata.
 func (bn *BirdNET) initializeModel() error {
-	// If model path ends with .onnx, use the ONNX backend
-	if isONNXModel(bn.Settings.BirdNET.ModelPath) {
+	// Use ONNX backend if the path points to a .onnx file, or if the registry
+	// entry declares this model as ONNX-only (e.g. embedded quantized models).
+	if isONNXModel(bn.Settings.BirdNET.ModelPath) || bn.ModelInfo.IsONNX {
 		return bn.initializeONNXModel()
 	}
 

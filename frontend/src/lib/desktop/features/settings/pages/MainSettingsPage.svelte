@@ -1519,11 +1519,12 @@
           label="Model Version"
           options={[
             { value: '2.4', label: 'BirdNET Global 6K V2.4' },
+            { value: '2.4-int8', label: 'BirdNET Global 6K V2.4 INT8 (ONNX)' },
             { value: '3.0', label: 'BirdNET+ V3.0 Preview 3 Global 11K' }
           ]}
           disabled={store.isLoading || store.isSaving}
           onChange={value => updateBirdnetSetting('version', typeof value === 'string' ? value : value[0])}
-          helpText="Select between the standard V2.4 model and the experimental V3.0 model."
+          helpText="Select the classifier model. The INT8 variant is a quantized ONNX model suited for hardware acceleration via QNN."
         />
 
         <NumberField

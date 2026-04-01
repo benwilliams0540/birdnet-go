@@ -24,10 +24,27 @@ func (bn *BirdNET) initializeONNXModel() error {
 			Build()
 	}
 
-	classifier, err := inference.NewONNXClassifier(bn.Settings.BirdNET.ModelPath, inference.ONNXClassifierOptions{
+	opts := inference.ONNXClassifierOptions{
 		Labels:  bn.Settings.BirdNET.Labels,
 		Threads: bn.Settings.BirdNET.Threads,
-	})
+	}
+
+	var classifier inference.Classifier
+	var err error
+
+	if bn.Settings.BirdNET.ModelPath != "" {
+		// Explicit path: load from file
+		classifier, err = inference.NewONNXClassifier(bn.Settings.BirdNET.ModelPath, opts)
+	} else if data, ok := GetEmbeddedONNXData(bn.ModelInfo.ID); ok {
+		// No path configured: use embedded model bytes
+		classifier, err = inference.NewONNXClassifierFromBytes(data, opts)
+	} else {
+		return errors.Newf("no model path and no embedded ONNX data for model %s", bn.ModelInfo.ID).
+			Category(errors.CategoryModelInit).
+			ModelContext("", bn.ModelInfo.ID).
+			Build()
+	}
+
 	if err != nil {
 		return errors.New(err).
 			Category(errors.CategoryModelInit).
@@ -38,8 +55,12 @@ func (bn *BirdNET) initializeONNXModel() error {
 
 	bn.classifier = classifier
 
+	source := bn.Settings.BirdNET.ModelPath
+	if source == "" {
+		source = "embedded:" + bn.ModelInfo.ID
+	}
 	log.Info("ONNX model initialized",
-		logger.String("model", bn.Settings.BirdNET.ModelPath),
+		logger.String("model", source),
 		logger.Int("species", classifier.NumSpecies()))
 
 	return nil

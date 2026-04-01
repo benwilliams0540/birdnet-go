@@ -125,6 +125,59 @@ func NewClassifier(modelPath string, opts ...ClassifierOption) (*Classifier, err
 	}, nil
 }
 
+// NewClassifierFromBytes creates a new Classifier from in-memory ONNX model data.
+// This is used for models embedded directly in the binary via go:embed.
+// Model type is auto-detected from tensor shapes unless overridden with WithModelType.
+// Labels must be provided via WithLabels or WithLabelsPath.
+func NewClassifierFromBytes(onnxData []byte, opts ...ClassifierOption) (*Classifier, error) {
+	if len(onnxData) == 0 {
+		return nil, fmt.Errorf("birdnet: ONNX model data is empty")
+	}
+
+	cfg := defaultClassifierConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	// Load model metadata from bytes
+	inputNames, inputShapes, outputNames, outputInfos, err := loadModelMetadataFromBytes(onnxData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Detect or use provided model type
+	mt, err := resolveModelType(cfg, inputShapes, len(outputNames))
+	if err != nil {
+		return nil, err
+	}
+
+	modelCfg := buildModelConfig(mt, inputShapes[0], len(outputNames))
+
+	labels, err := resolveLabels(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateLabelCount(&modelCfg, outputInfos, len(labels)); err != nil {
+		return nil, err
+	}
+
+	session, err := createSessionFromBytes(onnxData, inputNames, outputNames, cfg.sessionOptsFn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Classifier{
+		session:     session,
+		config:      modelCfg,
+		labels:      labels,
+		topK:        cfg.topK,
+		minConf:     cfg.minConf,
+		inputName:   inputNames[0],
+		outputNames: outputNames,
+	}, nil
+}
+
 // loadModelMetadata reads input/output tensor names and shapes from the model file.
 func loadModelMetadata(modelPath string) (
 	inputNames []string, inputShapes [][]int64,
@@ -207,6 +260,68 @@ func createSession(modelPath string, inputNames, outputNames []string, sessionOp
 	session, err := ort.NewDynamicAdvancedSession(modelPath, inputNames, outputNames, sessOpts)
 	if err != nil {
 		return nil, fmt.Errorf("birdnet: failed to create ONNX session: %w", err)
+	}
+	return session, nil
+}
+
+// loadModelMetadataFromBytes reads input/output tensor names and shapes from in-memory ONNX data.
+func loadModelMetadataFromBytes(onnxData []byte) (
+	inputNames []string, inputShapes [][]int64,
+	outputNames []string, outputInfos []ort.InputOutputInfo,
+	err error,
+) {
+	inputInfos, outputInfos, err := ort.GetInputOutputInfoWithONNXData(onnxData)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("birdnet: failed to load model metadata from bytes: %w", err)
+	}
+
+	if len(inputInfos) == 0 {
+		return nil, nil, nil, nil, &ModelDetectionError{Reason: "model has no input tensors"}
+	}
+
+	inputNames = make([]string, len(inputInfos))
+	inputShapes = make([][]int64, len(inputInfos))
+	for i := range inputInfos {
+		inputNames[i] = inputInfos[i].Name
+		inputShapes[i] = inputInfos[i].Dimensions
+	}
+
+	outputNames = make([]string, len(outputInfos))
+	for i := range outputInfos {
+		outputNames[i] = outputInfos[i].Name
+	}
+
+	if len(inputShapes[0]) < 2 {
+		return nil, nil, nil, nil, &ModelDetectionError{
+			Reason: fmt.Sprintf("input shape has %d dimensions, expected at least 2", len(inputShapes[0])),
+		}
+	}
+
+	return inputNames, inputShapes, outputNames, outputInfos, nil
+}
+
+// createSessionFromBytes builds an ONNX Runtime session from in-memory model data.
+func createSessionFromBytes(onnxData []byte, inputNames, outputNames []string, sessionOptsFn func(*ort.SessionOptions)) (*ort.DynamicAdvancedSession, error) {
+	sessOpts, err := ort.NewSessionOptions()
+	if err != nil {
+		return nil, fmt.Errorf("birdnet: failed to create session options: %w", err)
+	}
+	defer func() { _ = sessOpts.Destroy() }()
+
+	if err := sessOpts.SetIntraOpNumThreads(1); err != nil {
+		return nil, fmt.Errorf("birdnet: failed to set intra-op threads: %w", err)
+	}
+	if err := sessOpts.SetInterOpNumThreads(1); err != nil {
+		return nil, fmt.Errorf("birdnet: failed to set inter-op threads: %w", err)
+	}
+
+	if sessionOptsFn != nil {
+		sessionOptsFn(sessOpts)
+	}
+
+	session, err := ort.NewDynamicAdvancedSessionWithONNXData(onnxData, inputNames, outputNames, sessOpts)
+	if err != nil {
+		return nil, fmt.Errorf("birdnet: failed to create ONNX session from bytes: %w", err)
 	}
 	return session, nil
 }

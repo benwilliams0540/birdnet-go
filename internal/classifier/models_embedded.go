@@ -22,6 +22,21 @@ var metaModelDataV1 []byte
 //go:embed data/BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite
 var metaModelDataV2 []byte
 
+// Embedded INT8 ONNX model data.
+//
+//go:embed data/birdnet_int8.onnx
+var int8ModelData []byte
+
 // hasEmbeddedModels indicates whether models are embedded in the binary
 // This is a var instead of const to allow test overrides
 var hasEmbeddedModels = true
+
+// GetEmbeddedONNXData returns the embedded ONNX model bytes for a registry ID,
+// or nil and false if no embedded ONNX data exists for that ID.
+func GetEmbeddedONNXData(registryID string) ([]byte, bool) {
+	switch registryID {
+	case "BirdNET_V2.4_INT8":
+		return int8ModelData, true
+	}
+	return nil, false
+}

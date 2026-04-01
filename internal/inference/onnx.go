@@ -98,6 +98,46 @@ type onnxRangeFilter struct {
 	numSpecies int
 }
 
+// NewONNXClassifierFromBytes creates a Classifier from in-memory ONNX model data.
+// Used for models embedded in the binary via go:embed.
+// The ONNX Runtime must be initialized via InitONNXRuntime before calling this.
+func NewONNXClassifierFromBytes(data []byte, opts ONNXClassifierOptions) (Classifier, error) {
+	if len(opts.Labels) == 0 {
+		return nil, fmt.Errorf("ONNX classifier requires labels")
+	}
+
+	classifierOpts := []ort.ClassifierOption{
+		ort.WithLabels(opts.Labels),
+		ort.WithTopK(0),
+		ort.WithMinConfidence(0),
+	}
+	var configErr error
+	if opts.Threads > 0 {
+		threads := opts.Threads
+		classifierOpts = append(classifierOpts, ort.WithSessionOptions(func(so *ortlib.SessionOptions) {
+			if err := so.SetIntraOpNumThreads(threads); err != nil && configErr == nil {
+				configErr = fmt.Errorf("failed to set IntraOpNumThreads to %d: %w", threads, err)
+			}
+			if err := so.SetInterOpNumThreads(threads); err != nil && configErr == nil {
+				configErr = fmt.Errorf("failed to set InterOpNumThreads to %d: %w", threads, err)
+			}
+		}))
+	}
+	classifier, err := ort.NewClassifierFromBytes(data, classifierOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ONNX classifier from bytes: %w", err)
+	}
+	if configErr != nil {
+		_ = classifier.Close()
+		return nil, fmt.Errorf("failed to configure ONNX session options: %w", configErr)
+	}
+
+	return &onnxClassifier{
+		classifier: classifier,
+		numSpecies: len(opts.Labels),
+	}, nil
+}
+
 // NewONNXRangeFilter creates a RangeFilter backed by an ONNX Runtime meta model.
 func NewONNXRangeFilter(modelPath string, opts ONNXRangeFilterOptions) (RangeFilter, error) {
 	if len(opts.Labels) == 0 {
