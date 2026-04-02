@@ -1520,12 +1520,15 @@
           options={[
             { value: '2.4', label: 'BirdNET Global 6K V2.4' },
             { value: '2.4-int8', label: 'BirdNET Global 6K V2.4 INT8 (ONNX)' },
-            { value: '2.4-int8-cnn', label: 'BirdNET Global 6K V2.4 INT8 CNN (ONNX)' },
+            { value: '2.4-int8-cnn', label: 'BirdNET Global 6K V2.4 INT8 CNN (ONNX/QNN)' },
+            { value: '2.4-cnn-fp32', label: 'BirdNET Global 6K V2.4 CNN FP32 (QNN)' },
+            { value: '2.4-cnn-fp16', label: 'BirdNET Global 6K V2.4 CNN FP16 (QNN)' },
+            { value: '2.4-cnn-int8', label: 'BirdNET Global 6K V2.4 CNN INT8 (QNN)' },
             { value: '3.0', label: 'BirdNET+ V3.0 Preview 3 Global 11K' }
           ]}
           disabled={store.isLoading || store.isSaving}
           onChange={value => updateBirdnetSetting('version', typeof value === 'string' ? value : value[0])}
-          helpText="Select the classifier model. INT8 variants are quantized ONNX models. The CNN variant is optimised for Qualcomm QNN hardware acceleration (requires -tags qnn build)."
+          helpText="Select the classifier model. INT8/ONNX variants use CPU ONNX inference. CNN variants (FP32/FP16/INT8) require a QNN-enabled build and the corresponding model library in QNN Model Lib Dir."
         />
 
         <NumberField
@@ -1820,14 +1823,15 @@
             value={settings.birdnet.qnnBackend ?? ''}
             label="QNN Backend"
             options={[
-              { value: '', label: 'Disabled (CPU inference)' },
+              { value: '', label: 'Disabled (standard CPU inference)' },
+              { value: 'cpu', label: 'CPU (libQnnCpu.so) — confirmed working' },
               { value: 'gpu', label: 'GPU — Adreno via OpenCL (libQnnGpu.so)' },
               { value: 'htp', label: 'HTP — Hexagon DSP (libQnnHtp.so)' }
             ]}
             disabled={store.isLoading || store.isSaving}
             onChange={value =>
               updateBirdnetSetting('qnnBackend', typeof value === 'string' ? value : value[0])}
-            helpText="Select the QNN backend. GPU uses Adreno OpenCL; HTP uses the Hexagon DSP. Both require the respective libQnn*.so libraries in QNN Lib Dir."
+            helpText="Select the QNN backend. CPU backend requires fake_soc.so LD_PRELOAD and a CNN model variant. GPU uses Adreno OpenCL (blocked on Mesa Rusticl). HTP uses the Hexagon DSP (blocked on missing fastrpc device)."
           />
 
           <TextInput
@@ -1835,7 +1839,7 @@
             value={settings.birdnet.qnnLibDir ?? ''}
             label="QNN Lib Dir"
             placeholder="/opt/qnn"
-            helpText="Directory containing libQnnGpu.so (or libQnnHtp.so) and libQnnSystem.so from the QAIRT SDK."
+            helpText="Directory containing the QNN backend library (libQnnCpu.so, libQnnGpu.so, or libQnnHtp.so) and libQnnSystem.so from the QAIRT SDK."
             disabled={store.isLoading || store.isSaving}
             onchange={value => updateBirdnetSetting('qnnLibDir', value)}
           />
