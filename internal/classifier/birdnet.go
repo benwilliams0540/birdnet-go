@@ -197,16 +197,22 @@ func isONNXModel(path string) bool {
 //     declares IsONNX (e.g. embedded quantized models).
 //  3. TFLite — for all other cases.
 func (bn *BirdNET) initializeModel() error {
+	fmt.Printf("🎯 INITIALIZING MODEL - QNN Supported: %v, Backend: '%s'\n", isQNNSupported(), bn.Settings.BirdNET.QNNBackend)
+	GetLogger().Info("INITIALIZING MODEL DEBUG", logger.Bool("isQNNSupported", isQNNSupported()), logger.String("qnnBackend", bn.Settings.BirdNET.QNNBackend))
 	// 1. QNN hardware acceleration path.
 	if isQNNSupported() && bn.Settings.BirdNET.QNNBackend != "" {
+		fmt.Println("🎯 ENTERING QNN PATH")
 		if err := bn.initializeQNNModel(); err != nil {
-			// Non-fatal: log and fall through to ONNX CPU.
-			GetLogger().Warn("QNN initialization failed, falling back to ONNX CPU",
-				logger.String("backend", bn.Settings.BirdNET.QNNBackend),
-				logger.String("error", err.Error()))
-		} else {
-			return nil
+			fmt.Printf("🎯 QNN INIT FAILED: %v\n", err)
+			// Fatal: the user explicitly configured a QNN backend.
+			// Do NOT fall through to ONNX — the INT8 CNN model has 2 inputs
+			// and the ONNX detector will produce a misleading "unrecognized model" error.
+			return errors.New(err).
+				Category(errors.CategoryModelInit).
+				Context("backend", bn.Settings.BirdNET.QNNBackend).
+				Build()
 		}
+		return nil
 	}
 
 	// 2. ONNX Runtime path.

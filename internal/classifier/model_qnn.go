@@ -23,7 +23,7 @@ func (bn *BirdNET) initializeQNNModel() error {
 	cfg := bn.Settings.BirdNET
 
 	if cfg.QNNBackend == "" {
-		return errors.Newf("qnn: QNNBackend is empty; set to 'gpu' or 'htp'").
+		return errors.Newf("qnn: QNNBackend is empty; set to 'gpu', 'htp', or 'cpu'").
 			Category(errors.CategoryModelInit).
 			ModelContext("", bn.ModelInfo.ID).
 			Build()

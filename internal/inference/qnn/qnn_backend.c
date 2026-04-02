@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 // Pull in the QNN API headers from the QAIRT SDK.
 // The CGO cflags in classifier.go set -I to the SDK include directory.
@@ -169,47 +170,67 @@ static size_t tensor_element_count(const Qnn_Tensor_t *t) {
 }
 
 // ---------------------------------------------------------------------------
-// Common post-init: populate tensor metadata from a ready context
-// ---------------------------------------------------------------------------
+static int extract_tensors_from_metadata(qnn_session_t *s, const QnnSystemContext_BinaryInfo_t *bin_info, char *err, size_t err_sz) {
+    if (!bin_info) return -1;
+    const QnnSystemContext_GraphInfo_t* graph_info = NULL;
 
-static int populate_graph_tensors(qnn_session_t *s, char *err, size_t err_sz) {
-    // Retrieve graph input/output tensor info from the context.
-    Qnn_ErrorHandle_t rc = s->iface.v2.graphRetrieve(
-        s->context_handle, /* graphName = */ NULL, &s->graph_handle);
-    if (rc != QNN_SUCCESS) {
-        // Try index-based retrieval as a fallback.
-        rc = s->iface.v2.contextGetBinarySize(s->context_handle, NULL);
-        (void)rc;
-        // Attempt to get the first graph by index.
-        // If graphRetrieve with NULL name fails the backend may require an
-        // explicit name; fail gracefully.
-        set_error(err, err_sz,
-                  "graphRetrieve failed (rc=%d); ensure the model has exactly "
-                  "one graph or set graph_name explicitly", (int)rc);
+    if (bin_info->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_1) {
+        if (bin_info->contextBinaryInfoV1.numGraphs == 0) return -1;
+        graph_info = &bin_info->contextBinaryInfoV1.graphs[0];
+    } else if (bin_info->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_2) {
+        if (bin_info->contextBinaryInfoV2.numGraphs == 0) return -1;
+        graph_info = &bin_info->contextBinaryInfoV2.graphs[0];
+    } else {
+        if (bin_info->contextBinaryInfoV3.numGraphs == 0) return -1;
+        graph_info = &bin_info->contextBinaryInfoV3.graphs[0];
+    }
+
+    uint32_t num_in = 0, num_out = 0;
+    Qnn_Tensor_t *in_tensors = NULL, *out_tensors = NULL;
+    const char* graph_name = NULL;
+
+    if (graph_info->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
+        num_in = graph_info->graphInfoV1.numGraphInputs;
+        in_tensors = graph_info->graphInfoV1.graphInputs;
+        num_out = graph_info->graphInfoV1.numGraphOutputs;
+        out_tensors = graph_info->graphInfoV1.graphOutputs;
+        graph_name = graph_info->graphInfoV1.graphName;
+    } else if (graph_info->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_2) {
+        num_in = graph_info->graphInfoV2.numGraphInputs;
+        in_tensors = graph_info->graphInfoV2.graphInputs;
+        num_out = graph_info->graphInfoV2.numGraphOutputs;
+        out_tensors = graph_info->graphInfoV2.graphOutputs;
+        graph_name = graph_info->graphInfoV2.graphName;
+    } else {
+        num_in = graph_info->graphInfoV3.numGraphInputs;
+        in_tensors = graph_info->graphInfoV3.graphInputs;
+        num_out = graph_info->graphInfoV3.numGraphOutputs;
+        out_tensors = graph_info->graphInfoV3.graphOutputs;
+        graph_name = graph_info->graphInfoV3.graphName;
+    }
+
+    if (num_in == 0 || num_out == 0) {
+        set_error(err, err_sz, "unexpected tensor count");
         return -1;
     }
 
-    uint32_t n_inputs = 0, n_outputs = 0;
-    rc = s->iface.v2.graphGetTensors(s->graph_handle,
-                                     &s->input_tensors, &n_inputs,
-                                     &s->output_tensors, &n_outputs);
-    if (rc != QNN_SUCCESS) {
-        set_error(err, err_sz, "graphGetTensors failed (rc=%d)", (int)rc);
-        return -1;
-    }
+    s->num_input_tensors = num_in;
+    s->num_output_tensors = num_out;
+    s->input_tensors = calloc(num_in, sizeof(Qnn_Tensor_t));
+    s->output_tensors = calloc(num_out, sizeof(Qnn_Tensor_t));
+    for (uint32_t i=0; i<num_in; ++i) s->input_tensors[i] = in_tensors[i];
+    for (uint32_t i=0; i<num_out; ++i) s->output_tensors[i] = out_tensors[i];
 
-    s->num_input_tensors  = n_inputs;
-    s->num_output_tensors = n_outputs;
-
-    if (n_inputs == 0 || n_outputs == 0) {
-        set_error(err, err_sz,
-                  "unexpected tensor count: inputs=%u outputs=%u",
-                  n_inputs, n_outputs);
-        return -1;
-    }
-
-    s->input_element_count  = tensor_element_count(&s->input_tensors[0]);
+    s->input_element_count = 0;
+    for (uint32_t i = 0; i < s->num_input_tensors; ++i)
+        s->input_element_count += tensor_element_count(&s->input_tensors[i]);
     s->output_element_count = tensor_element_count(&s->output_tensors[0]);
+
+    if (graph_name) {
+        s->iface.v2_29.graphRetrieve(s->context_handle, graph_name, &s->graph_handle);
+    } else {
+        s->iface.v2_29.graphRetrieve(s->context_handle, NULL, &s->graph_handle);
+    }
     return 0;
 }
 
@@ -219,7 +240,7 @@ static int populate_graph_tensors(qnn_session_t *s, char *err, size_t err_sz) {
 
 static int init_backend(qnn_session_t *s, char *err, size_t err_sz) {
     // Create log handle (errors + warnings only).
-    Qnn_ErrorHandle_t rc = s->iface.v2.logCreate(
+    Qnn_ErrorHandle_t rc = s->iface.v2_29.logCreate(
         qnn_log_callback, QNN_LOG_LEVEL_WARN, &s->log_handle);
     if (rc != QNN_SUCCESS) {
         // Non-fatal — some backends don't support custom logging.
@@ -227,7 +248,7 @@ static int init_backend(qnn_session_t *s, char *err, size_t err_sz) {
     }
 
     // Initialise the backend.
-    rc = s->iface.v2.backendCreate(s->log_handle, NULL /* backendConfig */,
+    rc = s->iface.v2_29.backendCreate(s->log_handle, NULL /* backendConfig */,
                                    &s->backend_handle);
     if (rc != QNN_SUCCESS) {
         set_error(err, err_sz, "backendCreate failed (rc=%d)", (int)rc);
@@ -235,7 +256,7 @@ static int init_backend(qnn_session_t *s, char *err, size_t err_sz) {
     }
 
     // Device creation (not all backends require it; ignore failure).
-    (void)s->iface.v2.deviceCreate(s->log_handle, NULL, &s->device_handle);
+    (void)s->iface.v2_29.deviceCreate(s->log_handle, NULL, &s->device_handle);
 
     return 0;
 }
@@ -290,7 +311,7 @@ qnn_session_t *qnn_create_from_context_binary(
 
     // Create system context to deserialize the binary.
     QnnSystemContext_Handle_t sys_ctx = NULL;
-    Qnn_ErrorHandle_t rc = sys_iface.systemContextCreate(&sys_ctx);
+    Qnn_ErrorHandle_t rc = sys_iface.v1_5.systemContextCreate(&sys_ctx);
     if (rc != QNN_SUCCESS) {
         set_error(err, err_sz, "systemContextCreate failed (rc=%d)", (int)rc);
         goto fail;
@@ -299,7 +320,7 @@ qnn_session_t *qnn_create_from_context_binary(
     // Deserialize the context binary.
     const QnnSystemContext_BinaryInfo_t *bin_info = NULL;
     Qnn_ContextBinarySize_t             bin_info_size = 0;
-    rc = sys_iface.systemContextGetBinaryInfo(
+    rc = sys_iface.v1_5.systemContextGetBinaryInfo(
         sys_ctx, (void *)binary_data, (Qnn_ContextBinarySize_t)binary_size,
         &bin_info, &bin_info_size);
     if (rc != QNN_SUCCESS) {
@@ -307,13 +328,11 @@ qnn_session_t *qnn_create_from_context_binary(
                   "systemContextGetBinaryInfo failed (rc=%d); "
                   "context binary may be incompatible with this backend/driver",
                   (int)rc);
-        sys_iface.systemContextFree(sys_ctx);
+        sys_iface.v1_5.systemContextFree(sys_ctx);
         goto fail;
     }
-    sys_iface.systemContextFree(sys_ctx);
-
     // Create the QNN context from the binary blob.
-    rc = s->iface.v2.contextCreateFromBinary(
+    rc = s->iface.v2_29.contextCreateFromBinary(
         s->backend_handle, s->device_handle,
         NULL /* contextConfig */,
         (void *)binary_data, (Qnn_ContextBinarySize_t)binary_size,
@@ -322,10 +341,16 @@ qnn_session_t *qnn_create_from_context_binary(
     if (rc != QNN_SUCCESS) {
         set_error(err, err_sz,
                   "contextCreateFromBinary failed (rc=%d)", (int)rc);
+        sys_iface.v1_5.systemContextFree(sys_ctx);
         goto fail;
     }
 
-    if (populate_graph_tensors(s, err, err_sz) != 0) goto fail;
+    if (extract_tensors_from_metadata(s, bin_info, err, err_sz) != 0) {
+        sys_iface.v1_5.systemContextFree(sys_ctx);
+        goto fail;
+    }
+
+    sys_iface.v1_5.systemContextFree(sys_ctx);
 
     return s;
 
@@ -338,10 +363,25 @@ fail:
 // Public API — create from model library (online compilation)
 // ---------------------------------------------------------------------------
 
+typedef struct {
+    char* graphName;
+    const QnnGraph_Config_t** graphConfigs;
+} GraphConfigInfo_t;
+
+typedef struct {
+    Qnn_GraphHandle_t graph;
+    char* graphName;
+    Qnn_Tensor_t* inputTensors;
+    uint32_t numInputTensors;
+    Qnn_Tensor_t* outputTensors;
+    uint32_t numOutputTensors;
+} GraphInfo_t;
+
 // Type of the composer function exported by the model .so.
-typedef Qnn_ErrorHandle_t (*ComposeGraphsFn_t)(
+// Second arg is QNN_INTERFACE_VER_TYPE (the impl struct), NOT the full QnnInterface_t.
+typedef int (*ComposeGraphsFn_t)(
     Qnn_BackendHandle_t,
-    QnnInterface_t,
+    QNN_INTERFACE_VER_TYPE,
     Qnn_ContextHandle_t,
     const GraphConfigInfo_t **,
     uint32_t,
@@ -373,7 +413,10 @@ qnn_session_t *qnn_create_from_model_lib(
         return NULL;
     }
 
-    s->backend_lib = dlopen(backend_lib_path, RTLD_NOW | RTLD_LOCAL);
+    // Load with RTLD_GLOBAL so the backend's symbols are visible to the model
+    // library and any internal QNN subsystems that rely on global symbol lookup
+    // (verified: RTLD_LOCAL causes SIGSEGV in composeGraphs on Debian/aarch64).
+    s->backend_lib = dlopen(backend_lib_path, RTLD_NOW | RTLD_GLOBAL);
     if (!s->backend_lib) {
         set_error(err, err_sz, "dlopen %s: %s", backend_lib_path, dlerror());
         goto fail;
@@ -395,7 +438,7 @@ qnn_session_t *qnn_create_from_model_lib(
     if (init_backend(s, err, err_sz) != 0) goto fail;
 
     // Create a fresh context for graph composition.
-    Qnn_ErrorHandle_t rc = s->iface.v2.contextCreate(
+    Qnn_ErrorHandle_t rc = s->iface.v2_29.contextCreate(
         s->backend_handle, s->device_handle,
         NULL /* contextConfig */,
         &s->context_handle);
@@ -417,7 +460,7 @@ qnn_session_t *qnn_create_from_model_lib(
 
     GraphInfo_t **graph_infos   = NULL;
     uint32_t      num_graphs    = 0;
-    rc = compose(s->backend_handle, s->iface, s->context_handle,
+    rc = compose(s->backend_handle, s->iface.QNN_INTERFACE_VER_NAME, s->context_handle,
                  NULL /* graphConfigInfo */, 0,
                  &graph_infos, &num_graphs,
                  /* doNodeValidations = */ true,
@@ -430,7 +473,7 @@ qnn_session_t *qnn_create_from_model_lib(
     }
 
     // Finalise the first graph (the BirdNET classifier).
-    rc = s->iface.v2.graphFinalize(graph_infos[0]->graph,
+    rc = s->iface.v2_29.graphFinalize(graph_infos[0]->graph,
                                    NULL /* profileHandle */,
                                    NULL /* signal */);
     if (rc != QNN_SUCCESS) {
@@ -444,12 +487,16 @@ qnn_session_t *qnn_create_from_model_lib(
     s->graph_handle = graph_infos[0]->graph;
 
     // Copy tensor pointers before freeing graph_infos metadata.
-    s->input_tensors      = graph_infos[0]->inputTensors;
     s->num_input_tensors  = graph_infos[0]->numInputTensors;
-    s->output_tensors     = graph_infos[0]->outputTensors;
     s->num_output_tensors = graph_infos[0]->numOutputTensors;
+    s->input_tensors = calloc(s->num_input_tensors, sizeof(Qnn_Tensor_t));
+    s->output_tensors = calloc(s->num_output_tensors, sizeof(Qnn_Tensor_t));
+    for (uint32_t i=0; i<s->num_input_tensors; ++i) s->input_tensors[i] = graph_infos[0]->inputTensors[i];
+    for (uint32_t i=0; i<s->num_output_tensors; ++i) s->output_tensors[i] = graph_infos[0]->outputTensors[i];
 
-    s->input_element_count  = tensor_element_count(&s->input_tensors[0]);
+    s->input_element_count = 0;
+    for (uint32_t i = 0; i < s->num_input_tensors; ++i)
+        s->input_element_count += tensor_element_count(&s->input_tensors[i]);
     s->output_element_count = tensor_element_count(&s->output_tensors[0]);
 
     return s;
@@ -489,11 +536,19 @@ int qnn_run_inference(
         return -1;
     }
 
-    // Point the input tensor's client buffer at our data.
-    session->input_tensors[0].v2.clientBuf.data     = (void *)input_data;
-    session->input_tensors[0].v2.clientBuf.dataSize =
-        (uint32_t)(input_count * sizeof(float));
-    session->input_tensors[0].v2.memType            = QNN_TENSORMEMTYPE_RAW;
+    // Point each input tensor's client buffer at the appropriate slice of input_data.
+    // For single-input models input_count == tensor_element_count(&input_tensors[0]);
+    // for the two-input CNN model the caller concatenates [SPEC1 | SPEC2] into one array.
+    {
+        size_t offset = 0;
+        for (uint32_t i = 0; i < session->num_input_tensors; ++i) {
+            size_t n = tensor_element_count(&session->input_tensors[i]);
+            session->input_tensors[i].v2.clientBuf.data     = (void *)(input_data + offset);
+            session->input_tensors[i].v2.clientBuf.dataSize = (uint32_t)(n * sizeof(float));
+            session->input_tensors[i].v2.memType            = QNN_TENSORMEMTYPE_RAW;
+            offset += n;
+        }
+    }
 
     // Point the output tensor's client buffer at the caller's buffer.
     session->output_tensors[0].v2.clientBuf.data     = output_data;
@@ -501,7 +556,7 @@ int qnn_run_inference(
         (uint32_t)(output_count * sizeof(float));
     session->output_tensors[0].v2.memType            = QNN_TENSORMEMTYPE_RAW;
 
-    Qnn_ErrorHandle_t rc = session->iface.v2.graphExecute(
+    Qnn_ErrorHandle_t rc = session->iface.v2_29.graphExecute(
         session->graph_handle,
         session->input_tensors,  session->num_input_tensors,
         session->output_tensors, session->num_output_tensors,
@@ -534,19 +589,22 @@ size_t qnn_output_element_count(const qnn_session_t *session) {
 void qnn_destroy_session(qnn_session_t *session) {
     if (!session) return;
 
-    if (session->context_handle && session->iface.v2.contextFree) {
-        session->iface.v2.contextFree(session->context_handle,
+    if (session->context_handle && session->iface.v2_29.contextFree) {
+        session->iface.v2_29.contextFree(session->context_handle,
                                       NULL /* profileHandle */);
     }
-    if (session->device_handle && session->iface.v2.deviceFree) {
-        session->iface.v2.deviceFree(session->device_handle);
+    if (session->device_handle && session->iface.v2_29.deviceFree) {
+        session->iface.v2_29.deviceFree(session->device_handle);
     }
-    if (session->backend_handle && session->iface.v2.backendFree) {
-        session->iface.v2.backendFree(session->backend_handle);
+    if (session->backend_handle && session->iface.v2_29.backendFree) {
+        session->iface.v2_29.backendFree(session->backend_handle);
     }
-    if (session->log_handle && session->iface.v2.logFree) {
-        session->iface.v2.logFree(session->log_handle);
+    if (session->log_handle && session->iface.v2_29.logFree) {
+        session->iface.v2_29.logFree(session->log_handle);
     }
+
+    if (session->input_tensors) free(session->input_tensors);
+    if (session->output_tensors) free(session->output_tensors);
 
     // Close libraries last (function pointers become invalid after dlclose).
     if (session->model_lib)   dlclose(session->model_lib);

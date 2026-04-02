@@ -69,14 +69,7 @@ package qnn
 
 // #cgo CFLAGS: -std=c11
 // #cgo LDFLAGS: -ldl
-// #cgo CFLAGS: -I${SRCDIR}/../../../vendor/qairt/include
-//
-// The QNN SDK headers are expected at vendor/qairt/include inside the repo
-// root.  Symlink or copy them from the QAIRT SDK before building with the
-// qnn tag:
-//
-//   ln -s /path/to/qairt/2.39.0.250926/include vendor/qairt/include
-//
+// #cgo CFLAGS: -I${SRCDIR}/../../../vendor/qairt/include -I${SRCDIR}/../../../vendor/qairt/include/QNN
 // #include "qnn_backend.h"
 // #include <stdlib.h>
 import "C"
@@ -228,6 +221,17 @@ func NewClassifier(opts Options) (*Classifier, error) {
 // ---------------------------------------------------------------------------
 
 // OptionsFromConfig resolves Options from path components.
+//
+//   backend     — "gpu", "htp", or "cpu"
+//   libDir      — directory containing libQnnGpu.so (or libQnnHtp.so) and libQnnSystem.so
+//   modelLibDir — directory containing the compiled model .so
+//   modelName   — base name used to locate files, e.g. "birdnet_cnn"
+//
+// Model library search order (first match wins):
+//  1. <modelLibDir>/<modelName>_<backend>_context.bin  (pre-compiled context binary)
+//  2. <modelLibDir>/lib<modelName>_net.so              (qnn-model-lib-generator with _net suffix)
+//  3. <modelLibDir>/lib<modelName>.so                  (qnn-model-lib-generator default naming)
+//  4. <modelLibDir>/libmodel_net.so                    (legacy fallback)
 func OptionsFromConfig(backend, libDir, modelLibDir, modelName string) (Options, error) {
 	if libDir == "" {
 		return Options{}, fmt.Errorf("qnn: QNNLibDir must be set")
@@ -243,8 +247,10 @@ func OptionsFromConfig(backend, libDir, modelLibDir, modelName string) (Options,
 		backendLib = "libQnnGpu.so"
 	case "htp":
 		backendLib = "libQnnHtp.so"
+	case "cpu":
+		backendLib = "libQnnCpu.so"
 	default:
-		return Options{}, fmt.Errorf("qnn: unknown backend %q (valid: gpu, htp)", backend)
+		return Options{}, fmt.Errorf("qnn: unknown backend %q (valid: gpu, htp, cpu)", backend)
 	}
 
 	opts := Options{
@@ -253,21 +259,28 @@ func OptionsFromConfig(backend, libDir, modelLibDir, modelName string) (Options,
 		NumSpecies: 0, // caller must set
 	}
 
-	// Prefer context binary (faster) if present.
+	// 1. Prefer context binary (fastest start, device-specific).
 	contextBin := filepath.Join(modelLibDir, modelName+"_"+backend+"_context.bin")
 	if _, err := os.Stat(contextBin); err == nil {
 		opts.ContextBinary = contextBin
 		return opts, nil
 	}
 
-	// Fall back to model library (online compilation).
-	modelLib := filepath.Join(modelLibDir, "lib"+modelName+"_net.so")
+	// 2. lib<name>_net.so (older qnn-model-lib-generator naming)
+	modelLibNet := filepath.Join(modelLibDir, "lib"+modelName+"_net.so")
+	if _, err := os.Stat(modelLibNet); err == nil {
+		opts.ModelLib = modelLibNet
+		return opts, nil
+	}
+
+	// 3. lib<name>.so (current qnn-model-lib-generator default when -l <name> is used)
+	modelLib := filepath.Join(modelLibDir, "lib"+modelName+".so")
 	if _, err := os.Stat(modelLib); err == nil {
 		opts.ModelLib = modelLib
 		return opts, nil
 	}
 
-	// Also accept the default qnn-model-lib-generator output name.
+	// 4. Legacy fallback name.
 	modelLibDefault := filepath.Join(modelLibDir, "libmodel_net.so")
 	if _, err := os.Stat(modelLibDefault); err == nil {
 		opts.ModelLib = modelLibDefault
@@ -276,9 +289,10 @@ func OptionsFromConfig(backend, libDir, modelLibDir, modelName string) (Options,
 
 	return Options{}, fmt.Errorf(
 		"qnn: no model library or context binary found in %q for model %q "+
-			"(looked for %s, %s, %s)",
+			"(looked for %s, %s, %s, %s)",
 		modelLibDir, modelName,
 		filepath.Base(contextBin),
+		filepath.Base(modelLibNet),
 		filepath.Base(modelLib),
 		filepath.Base(modelLibDefault))
 }
@@ -288,14 +302,22 @@ func OptionsFromConfig(backend, libDir, modelLibDir, modelName string) (Options,
 // ---------------------------------------------------------------------------
 
 // Predict runs one inference pass on the provided audio samples.
-// samples must contain exactly the number of elements the model expects
-// (48 000 Hz × 3 s = 144 000 float32 values for BirdNET V2.4).
+// samples must contain exactly melAudioLen (144 000) float32 values
+// (48 kHz × 3 s = 144 000 samples for BirdNET V2.4).
+//
+// The raw audio is first converted to two mel spectrograms internally before
+// being passed to the QNN CNN model.  The CNN model no longer contains the
+// STFT/DFT preprocessing — that was split out when converting to QNN format.
 func (c *Classifier) Predict(samples []float32) ([]float32, error) {
 	if c.session == nil {
 		return nil, fmt.Errorf("qnn: classifier is closed")
 	}
 
-	inputCount := C.size_t(len(samples))
+	// Compute mel spectrograms from raw audio.
+	// Returns [SPEC1 (511×96) | SPEC2 (511×96)] = 98 112 float32 values.
+	melInput := ComputeMelSpectrograms(samples)
+
+	inputCount := C.size_t(len(melInput))
 	outputCount := C.size_t(c.numSpecies)
 	output := make([]float32, c.numSpecies)
 
@@ -303,7 +325,7 @@ func (c *Classifier) Predict(samples []float32) ([]float32, error) {
 
 	rc := C.qnn_run_inference(
 		c.session,
-		(*C.float)(unsafe.Pointer(&samples[0])),
+		(*C.float)(unsafe.Pointer(&melInput[0])),
 		inputCount,
 		(*C.float)(unsafe.Pointer(&output[0])),
 		outputCount,

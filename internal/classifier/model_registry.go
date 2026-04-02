@@ -89,6 +89,48 @@ var ModelRegistry = map[string]ModelInfo{
 		NumSpecies:    6523,
 		IsONNX:        true,
 	},
+	"BirdNET_V2.4_CNN_FP32": {
+		ID:               "BirdNET_V2.4_CNN_FP32",
+		Name:             "BirdNET GLOBAL 6K V2.4 CNN FP32 (QNN GPU)",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "CNN-only subgraph with FP32 precision for QNN GPU acceleration (Adreno)",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_cnn_fp32"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6522, // CNN subgraph output: verified via QNN tensor introspection
+	},
+	"BirdNET_V2.4_CNN_FP16": {
+		ID:               "BirdNET_V2.4_CNN_FP16",
+		Name:             "BirdNET GLOBAL 6K V2.4 CNN FP16 (QNN GPU)",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "CNN-only subgraph with FP16 weights for QNN GPU acceleration (Adreno)",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_cnn_fp16"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6522, // CNN subgraph output: verified via QNN tensor introspection
+	},
+	"BirdNET_V2.4_CNN_INT8": {
+		ID:               "BirdNET_V2.4_CNN_INT8",
+		Name:             "BirdNET GLOBAL 6K V2.4 CNN INT8 (QNN GPU)",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "CNN-only subgraph with INT8 weights for QNN GPU acceleration (Adreno)",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_cnn_int8"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6522, // CNN subgraph output: verified via QNN tensor introspection
+	},
 	"Perch_V2": {
 		ID:               "Perch_V2",
 		Name:             "Google Perch V2",
@@ -106,6 +148,9 @@ var birdnetVersionToRegistryID = map[string]string{
 	"2.4":          "BirdNET_V2.4",
 	"2.4-int8":     "BirdNET_V2.4_INT8",
 	"2.4-int8-cnn": "BirdNET_V2.4_INT8_CNN",
+	"2.4-cnn-fp32": "BirdNET_V2.4_CNN_FP32",
+	"2.4-cnn-fp16": "BirdNET_V2.4_CNN_FP16",
+	"2.4-cnn-int8": "BirdNET_V2.4_CNN_INT8",
 	"3.0":          "BirdNET_V3.0",
 }
 
