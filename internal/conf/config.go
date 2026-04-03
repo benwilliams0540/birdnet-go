@@ -1115,6 +1115,10 @@ type BirdNETConfig struct {
 	QNNBackend     string `yaml:"qnnbackend,omitempty" json:"qnnBackend,omitempty"`       // QNN backend: "gpu", "htp", or "" (CPU fallback)
 	QNNLibDir      string `yaml:"qnnlibdir,omitempty" json:"qnnLibDir,omitempty"`          // directory containing libQnnGpu.so / libQnnHtp.so + libQnnSystem.so
 	QNNModelLibDir string `yaml:"qnnmodellibdir,omitempty" json:"qnnModelLibDir,omitempty"` // directory containing compiled QNN model libraries (.so)
+	// NCNN hardware acceleration settings (Vulkan-accelerated inference)
+	// Requires birdnet-go built with -tags ncnn and NCNN CNN sub-model files deployed.
+	NCNNModelDir  string `yaml:"ncnnmodeldir,omitempty" json:"ncnnModelDir,omitempty"`   // directory containing birdnet_cnn.param and birdnet_cnn.bin
+	NCNNUseVulkan bool   `yaml:"ncnnusevulkan,omitempty" json:"ncnnUseVulkan,omitempty"` // true to enable Vulkan GPU acceleration via NCNN
 }
 
 // RangeFilterSettings contains settings for the range filter

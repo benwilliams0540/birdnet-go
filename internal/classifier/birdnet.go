@@ -191,22 +191,27 @@ func isONNXModel(path string) bool {
 // initializeModel loads and initializes the primary BirdNET model.
 //
 // Dispatch priority:
-//  1. QNN hardware acceleration — when QNNBackend is set and qnn build tag is active.
-//     Falls back to ONNX CPU if QNN initialization fails (logs a warning).
-//  2. ONNX Runtime — when the model path ends in .onnx, or the registry entry
+//  1. NCNN — when NCNNModelDir is set and ncnn build tag is active.
+//  2. QNN hardware acceleration — when QNNBackend is set and qnn build tag is active.
+//  3. ONNX Runtime — when the model path ends in .onnx, or the registry entry
 //     declares IsONNX (e.g. embedded quantized models).
-//  3. TFLite — for all other cases.
+//  4. TFLite — for all other cases.
 func (bn *BirdNET) initializeModel() error {
-	fmt.Printf("🎯 INITIALIZING MODEL - QNN Supported: %v, Backend: '%s'\n", isQNNSupported(), bn.Settings.BirdNET.QNNBackend)
-	GetLogger().Info("INITIALIZING MODEL DEBUG", logger.Bool("isQNNSupported", isQNNSupported()), logger.String("qnnBackend", bn.Settings.BirdNET.QNNBackend))
-	// 1. QNN hardware acceleration path.
+	// 1. NCNN path.
+	if isNCNNSupported() && bn.Settings.BirdNET.NCNNModelDir != "" {
+		if err := bn.initializeNCNNModel(); err != nil {
+			return errors.New(err).
+				Category(errors.CategoryModelInit).
+				Context("backend", "ncnn").
+				Build()
+		}
+		return nil
+	}
+
+	// 2. QNN hardware acceleration path.
 	if isQNNSupported() && bn.Settings.BirdNET.QNNBackend != "" {
-		fmt.Println("🎯 ENTERING QNN PATH")
 		if err := bn.initializeQNNModel(); err != nil {
-			fmt.Printf("🎯 QNN INIT FAILED: %v\n", err)
 			// Fatal: the user explicitly configured a QNN backend.
-			// Do NOT fall through to ONNX — the INT8 CNN model has 2 inputs
-			// and the ONNX detector will produce a misleading "unrecognized model" error.
 			return errors.New(err).
 				Category(errors.CategoryModelInit).
 				Context("backend", bn.Settings.BirdNET.QNNBackend).
@@ -215,12 +220,12 @@ func (bn *BirdNET) initializeModel() error {
 		return nil
 	}
 
-	// 2. ONNX Runtime path.
+	// 3. ONNX Runtime path.
 	if isONNXModel(bn.Settings.BirdNET.ModelPath) || bn.ModelInfo.IsONNX {
 		return bn.initializeONNXModel()
 	}
 
-	// 3. TFLite path.
+	// 4. TFLite path.
 	return bn.initializeTFLiteModel()
 }
 

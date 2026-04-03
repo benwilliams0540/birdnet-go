@@ -1,0 +1,65 @@
+//go:build ncnn
+
+package classifier
+
+import (
+	"time"
+
+	"github.com/tphakala/birdnet-go/internal/errors"
+	"github.com/tphakala/birdnet-go/internal/inference"
+	"github.com/tphakala/birdnet-go/internal/logger"
+)
+
+// initializeNCNNModel loads and initialises the NCNN classifier backend.
+//
+// Model files (birdnet_cnn.param + birdnet_cnn.bin) are loaded from the
+// directory specified by BirdNETConfig.NCNNModelDir. These files are produced
+// by running onnx2ncnn on the BirdNET CNN sub-model (birdnet_cnn.onnx).
+//
+// The backend performs Go-native mel spectrogram preprocessing on raw audio
+// before passing the result to the NCNN CNN graph.
+func (bn *BirdNET) initializeNCNNModel() error {
+	start := time.Now()
+	log := GetLogger()
+
+	cfg := bn.Settings.BirdNET
+
+	modelDir := cfg.NCNNModelDir
+	if modelDir == "" {
+		modelDir = "model"
+	}
+
+	opts := inference.NCNNClassifierOptions{
+		ModelDir:  modelDir,
+		Threads:   cfg.Threads,
+		UseVulkan: cfg.NCNNUseVulkan,
+	}
+
+	classifier, err := inference.NewNCNNClassifier(opts)
+	if err != nil {
+		return errors.New(err).
+			Category(errors.CategoryModelInit).
+			Context("ncnn_model_dir", modelDir).
+			Context("ncnn_use_vulkan", cfg.NCNNUseVulkan).
+			ModelContext("", bn.ModelInfo.ID).
+			Timing("ncnn-model-init", time.Since(start)).
+			Build()
+	}
+
+	bn.classifier = classifier
+
+	backend := "cpu"
+	if cfg.NCNNUseVulkan {
+		backend = "vulkan"
+	}
+	log.Info("NCNN model initialized",
+		logger.String("model_dir", modelDir),
+		logger.String("backend", backend),
+		logger.Int("species", classifier.NumSpecies()),
+		logger.Duration("init_time", time.Since(start)))
+
+	return nil
+}
+
+// isNCNNSupported returns true when the binary is built with NCNN support.
+func isNCNNSupported() bool { return true }

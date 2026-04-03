@@ -79,6 +79,10 @@ export interface BirdNetSettings {
   qnnBackend: string | null; // "gpu", "htp", or null/""  (disabled)
   qnnLibDir: string | null; // directory containing libQnnGpu.so / libQnnSystem.so
   qnnModelLibDir: string | null; // directory containing libmodel_net.so or context binary
+  // NCNN hardware acceleration (Vulkan GPU via NCNN)
+  // Requires birdnet-go built with -tags ncnn and NCNN CNN sub-model files deployed.
+  ncnnModelDir: string | null; // directory containing birdnet_cnn.param and birdnet_cnn.bin
+  ncnnUseVulkan: boolean; // true to enable Vulkan GPU acceleration
 }
 
 export interface DynamicThresholdSettings {
@@ -833,6 +837,8 @@ function createEmptySettings(): SettingsFormData {
       qnnBackend: '',
       qnnLibDir: '',
       qnnModelLibDir: '',
+      ncnnModelDir: '',
+      ncnnUseVulkan: false,
       rangeFilter: {
         threshold: 0.03,
         speciesCount: null,
@@ -1270,6 +1276,9 @@ export const settingsActions = {
       }
       if (coercedFormData.birdnet.qnnModelLibDir?.trim() === '') {
         coercedFormData.birdnet.qnnModelLibDir = null;
+      }
+      if (coercedFormData.birdnet.ncnnModelDir?.trim() === '') {
+        coercedFormData.birdnet.ncnnModelDir = null;
       }
 
       await settingsAPI.save(coercedFormData);
