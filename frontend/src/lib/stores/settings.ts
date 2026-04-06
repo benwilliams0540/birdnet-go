@@ -130,9 +130,14 @@ export interface AudioSourceConfig {
   name: string;
   device: string;
   gain: number;
-  model: string; // "birdnet" | "perch_v2" | "bat" | "" (empty = default birdnet)
+  model?: string; // Legacy single-model field kept for backward compatibility
+  models?: string[]; // Preferred backend field; UI currently edits a single primary model
   equalizer?: EqualizerSettings;
   quietHours?: QuietHoursConfig;
+}
+
+export interface ModelsSettings {
+  enabled: string[];
 }
 
 export interface AudioSettings {
@@ -768,6 +773,7 @@ export interface SettingsFormData {
   systemId?: string;
   main: MainSettings;
   birdnet: BirdNetSettings;
+  models?: ModelsSettings;
   input?: unknown; // Not exposed via JSON
   realtime?: RealtimeSettings;
   webServer?: WebServerSettings;
@@ -826,6 +832,9 @@ function createEmptySettings(): SettingsFormData {
         speciesCount: null,
         species: [],
       },
+    },
+    models: {
+      enabled: ['birdnet'],
     },
     realtime: {
       interval: 15,

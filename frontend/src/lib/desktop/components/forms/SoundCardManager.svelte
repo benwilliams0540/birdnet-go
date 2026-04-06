@@ -34,7 +34,7 @@
     EqualizerFilterType,
     QuietHoursConfig,
   } from '$lib/stores/settings';
-  import { defaultQuietHoursConfig } from '$lib/stores/settings';
+  import { defaultQuietHoursConfig, settingsStore } from '$lib/stores/settings';
 
   // Local EqualizerSettings type matching AudioEqualizerSettings component's interface
   // where filter.id is optional (assigned on save)
@@ -52,6 +52,25 @@
   }
 
   const logger = loggers.audio;
+
+  function getPrimaryModel(source: AudioSourceConfig): string {
+    if (source.models && source.models.length > 0) {
+      const [primaryModel] = source.models;
+      if (primaryModel === 'birdnet' && !source.model) {
+        return '';
+      }
+      return primaryModel;
+    }
+    return source.model ?? '';
+  }
+
+  function buildSourceModels(primaryModel: string): { model: string; models: string[] } {
+    const trimmedModel = primaryModel.trim();
+    if (trimmedModel === '') {
+      return { model: '', models: ['birdnet'] };
+    }
+    return { model: trimmedModel, models: [trimmedModel] };
+  }
 
   // Fetch available models from backend API
   interface BackendModel {
@@ -89,12 +108,6 @@
     return () => controller.abort();
   });
 
-  // Model options — default entry + dynamically loaded models
-  const modelOptions = $derived([
-    { value: '', label: t('settings.audio.soundCards.models.birdnetDefault') },
-    ...availableModels.map(m => ({ value: m.id, label: m.name })),
-  ]);
-
   interface Props {
     sources: AudioSourceConfig[];
     audioDevices: Array<{ index: number; name: string; id: string }>;
@@ -112,6 +125,26 @@
     onUpdateSources,
     onRefreshDevices,
   }: Props = $props();
+
+  const enabledModelIds = $derived($settingsStore.formData.models?.enabled ?? ['birdnet']);
+
+  // Model options — default entry + dynamically loaded models
+  const modelOptions = $derived.by(() => {
+    const selectableModelIds = new Set<string>(enabledModelIds);
+    for (const source of sources) {
+      const primaryModel = getPrimaryModel(source);
+      if (primaryModel !== '') {
+        selectableModelIds.add(primaryModel);
+      }
+    }
+
+    return [
+      { value: '', label: t('settings.audio.soundCards.models.birdnetDefault') },
+      ...availableModels
+        .filter(model => selectableModelIds.has(model.id))
+        .map(model => ({ value: model.id, label: model.name })),
+    ];
+  });
 
   // Add form state
   let showAddForm = $state(false);
@@ -193,7 +226,7 @@
       name: trimmedName,
       device: newDevice,
       gain: newGain,
-      model: newModel,
+      ...buildSourceModels(newModel),
       equalizer: transformedEqualizer,
       quietHours: newQuietHours,
     };

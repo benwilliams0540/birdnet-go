@@ -199,6 +199,7 @@ func (c *Controller) UpdateSettings(ctx echo.Context) error {
 
 	// Migrate legacy single audio source if a cached frontend sent it
 	settings.MigrateAudioSourceConfig()
+	settings.MigrateSourceModels()
 
 	// Run full settings validation after field updates
 	if err := conf.ValidateSettings(settings); err != nil {
@@ -523,6 +524,7 @@ func (c *Controller) UpdateSectionSettings(ctx echo.Context) error {
 
 	// Migrate legacy single audio source if a cached frontend sent it
 	settings.MigrateAudioSourceConfig()
+	settings.MigrateSourceModels()
 
 	// Run full settings validation after section merge to catch invalid values
 	// (e.g., malformed telemetry listen address, invalid port ranges, etc.)

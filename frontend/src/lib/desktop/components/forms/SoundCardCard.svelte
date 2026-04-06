@@ -87,6 +87,25 @@
   let showDeleteConfirm = $state(false);
   let showEqualizer = $state(false);
 
+  function getPrimaryModel(source: AudioSourceConfig): string {
+    if (source.models && source.models.length > 0) {
+      const [primaryModel] = source.models;
+      if (primaryModel === 'birdnet' && !source.model) {
+        return '';
+      }
+      return primaryModel;
+    }
+    return source.model ?? '';
+  }
+
+  function buildSourceModels(primaryModel: string): { model: string; models: string[] } {
+    const trimmedModel = primaryModel.trim();
+    if (trimmedModel === '') {
+      return { model: '', models: ['birdnet'] };
+    }
+    return { model: trimmedModel, models: [trimmedModel] };
+  }
+
   // Device display name lookup
   let deviceDisplayName = $derived(
     audioDevices.find(d => d.id === source.device)?.name ?? source.device
@@ -94,7 +113,7 @@
 
   // Model display name
   let modelDisplayName = $derived(
-    modelOptions.find(m => m.value === source.model)?.label ??
+    modelOptions.find(m => m.value === getPrimaryModel(source))?.label ??
       t('settings.audio.soundCards.models.birdnetDefault')
   );
 
@@ -106,7 +125,7 @@
     editName = source.name;
     editDevice = source.device;
     editGain = source.gain;
-    editModel = source.model;
+    editModel = getPrimaryModel(source);
     editEqualizer = source.equalizer
       ? { ...source.equalizer, filters: [...source.equalizer.filters] }
       : { enabled: false, filters: [] };
@@ -139,7 +158,7 @@
       name: trimmedName,
       device: editDevice,
       gain: editGain,
-      model: editModel,
+      ...buildSourceModels(editModel),
       equalizer: transformedEqualizer,
       quietHours: editQuietHours,
     };
