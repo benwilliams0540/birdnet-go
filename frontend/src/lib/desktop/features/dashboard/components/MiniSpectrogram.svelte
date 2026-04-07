@@ -22,6 +22,10 @@
   import { appState, hasLiveAudioAccess } from '$lib/stores/appState.svelte';
   import { HLS_AUDIO_CONFIG } from '$lib/desktop/components/ui/hls-config';
   import { useSpectrogramAnalyser } from '$lib/utils/useSpectrogramAnalyser.svelte';
+  import {
+    isWebKitLiveSpectrogramBrowser,
+    useLiveSpectrogramBackend,
+  } from '$lib/utils/liveSpectrogramBackend.svelte';
   import SpectrogramCanvas from '$lib/desktop/components/media/SpectrogramCanvas.svelte';
   import { fetchWithCSRF } from '$lib/utils/api';
   import { buildAppUrl } from '$lib/utils/urlHelpers';
@@ -101,22 +105,32 @@
 
   // Initialize composable during component init (must be at top level for $effect cleanup)
   const spectro = useSpectrogramAnalyser({ fftSize: FFT_SIZE, audioOutput: false });
+  const backendSpectro = useLiveSpectrogramBackend({ gainDb: 0 });
+  const usingBackendLiveSpectrogram = isWebKitLiveSpectrogramBrowser();
 
-  function isWebKitBrowser(): boolean {
-    const ua = globalThis.navigator?.userAgent ?? '';
-    const vendor = globalThis.navigator?.vendor ?? '';
-    return (
-      /Apple/i.test(vendor) && /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS/i.test(ua)
-    );
-  }
+  let activeSpectrogramAnalyser = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.analyser : spectro.analyser
+  );
+  let activeSpectrogramFrequencyData = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.frequencyData : spectro.frequencyData
+  );
+  let activeSpectrogramSampleRate = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.sampleRate : spectro.sampleRate
+  );
+  let activeSpectrogramFFTSize = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.fftSize : spectro.fftSize
+  );
+  let activeSpectrogramIsActive = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.isActive : spectro.isActive
+  );
 
   const liveSignalUnavailableMessage = $derived.by(() => {
     if (!liveSignalUnavailable) {
       return '';
     }
 
-    if (isWebKitBrowser()) {
-      return 'Live spectrogram is unavailable in Safari/WebKit for HLS audio streams. Audio and detections still work, but the graph currently requires Chrome, Brave, or Firefox.';
+    if (usingBackendLiveSpectrogram) {
+      return 'Safari/WebKit is using a server-side live spectrogram fallback, but that feed is not delivering data right now. Audio and detections still work.';
     }
 
     return 'Live spectrogram data is not reaching the browser audio analyser even though the stream is connected.';
@@ -231,7 +245,9 @@
   async function start() {
     if (isActive || isConnecting) return;
     isConnecting = true;
-    void spectro.prime();
+    if (!usingBackendLiveSpectrogram) {
+      void spectro.prime();
+    }
 
     // Abort any previous in-flight operation
     abortController?.abort();
@@ -282,10 +298,10 @@
 
         hls.on(Hls.Events.MANIFEST_PARSED, async () => {
           if (signal.aborted) return;
-          if (audioElement) {
+          if (audioElement && !usingBackendLiveSpectrogram) {
             await spectro.connect(audioElement);
           }
-          if (signal.aborted) {
+          if (signal.aborted && !usingBackendLiveSpectrogram) {
             spectro.disconnect();
             return;
           }
@@ -300,6 +316,15 @@
 
           if (signal.aborted) return;
 
+          if (usingBackendLiveSpectrogram && audioElement) {
+            // eslint-disable-next-line security/detect-object-injection -- gainPresetIndex is bounded by GAIN_PRESETS length
+            const preset = GAIN_PRESETS[gainPresetIndex];
+            audioElement.muted = !preset.audio;
+            backendSpectro.setGain(preset.audio ? preset.db : 0);
+          }
+          if (usingBackendLiveSpectrogram && activeSourceId) {
+            backendSpectro.connect(activeSourceId);
+          }
           startHeartbeat(activeStreamToken!);
           isActive = true;
           isConnecting = false;
@@ -319,8 +344,10 @@
       } else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS (Safari / iOS)
         audioElement.src = hlsUrl;
-        await spectro.connect(audioElement);
-        if (signal.aborted) {
+        if (!usingBackendLiveSpectrogram) {
+          await spectro.connect(audioElement);
+        }
+        if (signal.aborted && !usingBackendLiveSpectrogram) {
           spectro.disconnect();
           return;
         }
@@ -333,6 +360,15 @@
 
         if (signal.aborted || !audioElement) return;
 
+        if (usingBackendLiveSpectrogram) {
+          // eslint-disable-next-line security/detect-object-injection -- gainPresetIndex is bounded by GAIN_PRESETS length
+          const preset = GAIN_PRESETS[gainPresetIndex];
+          audioElement.muted = !preset.audio;
+          backendSpectro.setGain(preset.audio ? preset.db : 0);
+        }
+        if (usingBackendLiveSpectrogram && activeSourceId) {
+          backendSpectro.connect(activeSourceId);
+        }
         startHeartbeat(activeStreamToken!);
         isActive = true;
         isConnecting = false;
@@ -402,6 +438,7 @@
 
     stopHeartbeat();
     spectro.disconnect();
+    backendSpectro.disconnect();
 
     if (hls) {
       hls.destroy();
@@ -444,10 +481,19 @@
           // later user gesture via the deferred AudioContext resume handler.
         });
       }
+      if (usingBackendLiveSpectrogram) {
+        audioElement.muted = !preset.audio;
+      }
     }
-    spectro.setAudioOutput(preset.audio);
+    if (!usingBackendLiveSpectrogram) {
+      spectro.setAudioOutput(preset.audio);
+    }
     // Always update gain -- when muted (db: -Infinity), this resets the
     // spectrogram visualization to 0 dB instead of leaving it at max gain.
+    if (usingBackendLiveSpectrogram) {
+      backendSpectro.setGain(preset.audio ? preset.db : 0);
+      return;
+    }
     spectro.setGain(preset.audio ? preset.db : 0);
   }
 
@@ -518,6 +564,43 @@
   });
 
   $effect(() => {
+    if (usingBackendLiveSpectrogram) {
+      if (!audioElement || !isActive) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      const interval = globalThis.setInterval(() => {
+        if (!audioElement) return;
+
+        const mediaAdvancing =
+          !audioElement.paused && audioElement.currentTime > 0.5 && audioElement.readyState >= 2;
+        if (!mediaAdvancing) {
+          zeroSignalSinceMs = 0;
+          liveSignalUnavailable = false;
+          return;
+        }
+
+        if (backendSpectro.lastFrameAtMs > 0 && Date.now() - backendSpectro.lastFrameAtMs < ZERO_SIGNAL_GRACE_MS) {
+          zeroSignalSinceMs = 0;
+          liveSignalUnavailable = false;
+          return;
+        }
+
+        if (zeroSignalSinceMs === 0) {
+          zeroSignalSinceMs = Date.now();
+          return;
+        }
+
+        if (Date.now() - zeroSignalSinceMs >= ZERO_SIGNAL_GRACE_MS) {
+          liveSignalUnavailable = true;
+        }
+      }, ZERO_SIGNAL_CHECK_INTERVAL_MS);
+
+      return () => globalThis.clearInterval(interval);
+    }
+
     if (!audioElement || !spectro.analyser || !spectro.isActive || !isActive) {
       zeroSignalSinceMs = 0;
       liveSignalUnavailable = false;
@@ -638,16 +721,16 @@
       </div>
     </div>
 
-    {#if (isActive || isConnecting) && spectro.isActive}
+    {#if (isActive || isConnecting) && activeSpectrogramIsActive}
       <div class="relative h-28 w-full">
         <SpectrogramCanvas
-          analyser={spectro.analyser}
-          frequencyData={spectro.frequencyData}
-          sampleRate={spectro.sampleRate}
-          fftSize={FFT_SIZE}
+          analyser={activeSpectrogramAnalyser}
+          frequencyData={activeSpectrogramFrequencyData}
+          sampleRate={activeSpectrogramSampleRate}
+          fftSize={activeSpectrogramFFTSize}
           {frequencyRange}
           {colorMap}
-          isActive={spectro.isActive}
+          isActive={activeSpectrogramIsActive}
           overlayLabels={showDetectionLabels ? overlayLabels : []}
           overlayFontSize={9}
           className="h-28 w-full"

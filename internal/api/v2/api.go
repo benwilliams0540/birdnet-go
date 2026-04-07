@@ -571,6 +571,7 @@ func (c *Controller) initRoutes() {
 		{"stream health routes", c.initStreamHealthRoutes},
 		{"quiet hours routes", c.initQuietHoursRoutes},
 		{"audio level routes", c.initAudioLevelRoutes},
+		{"live spectrogram routes", c.initLiveSpectrogramRoutes},
 		{"hls streaming routes", c.initHLSRoutes},
 		{"integration routes", c.initIntegrationsRoutes},
 		{"control routes", c.initControlRoutes},

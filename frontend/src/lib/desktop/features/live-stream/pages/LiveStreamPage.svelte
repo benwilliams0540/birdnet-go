@@ -16,6 +16,10 @@
   import { t } from '$lib/i18n';
   import { HLS_AUDIO_CONFIG, BUFFERING_STRATEGY } from '$lib/desktop/components/ui/hls-config';
   import { useSpectrogramAnalyser } from '$lib/utils/useSpectrogramAnalyser.svelte';
+  import {
+    isWebKitLiveSpectrogramBrowser,
+    useLiveSpectrogramBackend,
+  } from '$lib/utils/liveSpectrogramBackend.svelte';
   import SpectrogramCanvas from '$lib/desktop/components/media/SpectrogramCanvas.svelte';
   import SpectrogramControls from '$lib/desktop/components/media/SpectrogramControls.svelte';
   import SelectDropdown from '$lib/desktop/components/forms/SelectDropdown.svelte';
@@ -100,22 +104,32 @@
 
   // Initialize composable during component init (registers cleanup $effect)
   const spectro = useSpectrogramAnalyser({ fftSize: FFT_SIZE, audioOutput: true });
+  const backendSpectro = useLiveSpectrogramBackend({ gainDb: 0 });
+  const usingBackendLiveSpectrogram = isWebKitLiveSpectrogramBrowser();
 
-  function isWebKitBrowser(): boolean {
-    const ua = globalThis.navigator?.userAgent ?? '';
-    const vendor = globalThis.navigator?.vendor ?? '';
-    return (
-      /Apple/i.test(vendor) && /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS/i.test(ua)
-    );
-  }
+  let activeSpectrogramAnalyser = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.analyser : spectro.analyser
+  );
+  let activeSpectrogramFrequencyData = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.frequencyData : spectro.frequencyData
+  );
+  let activeSpectrogramSampleRate = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.sampleRate : spectro.sampleRate
+  );
+  let activeSpectrogramFFTSize = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.fftSize : spectro.fftSize
+  );
+  let activeSpectrogramIsActive = $derived(
+    usingBackendLiveSpectrogram ? backendSpectro.isActive : spectro.isActive
+  );
 
   const liveSignalUnavailableMessage = $derived.by(() => {
     if (!liveSignalUnavailable) {
       return '';
     }
 
-    if (isWebKitBrowser()) {
-      return 'Live spectrogram is unavailable in Safari/WebKit for HLS audio streams. Audio and detections still work, but the graph currently requires Chrome, Brave, or Firefox.';
+    if (usingBackendLiveSpectrogram) {
+      return 'Safari/WebKit is using a server-side live spectrogram fallback, but that feed is not delivering data right now. Audio and detections still work.';
     }
 
     return 'Live spectrogram data is not reaching the browser audio analyser even though the stream is connected.';
@@ -207,7 +221,9 @@
     if (!selectedSourceId) return;
 
     stopStream();
-    void spectro.prime();
+    if (!usingBackendLiveSpectrogram) {
+      void spectro.prime();
+    }
     isConnecting = true;
     connectionError = null;
 
@@ -377,15 +393,22 @@
         hls.on(Hls.Events.MANIFEST_PARSED, async () => {
           if (signal.aborted) return;
           // Connect the spectrogram analyser once manifest is ready
-          if (audioElement) {
+          if (audioElement && !usingBackendLiveSpectrogram) {
             await spectro.connect(audioElement);
           }
-          if (signal.aborted) {
+          if (signal.aborted && !usingBackendLiveSpectrogram) {
             spectro.disconnect();
             return;
           }
+          if (usingBackendLiveSpectrogram && audioElement) {
+            audioElement.muted = !audioOutput;
+            backendSpectro.setGain(gainDb);
+          }
           startHeartbeat(activeStreamToken!);
           if (activeSourceId) {
+            if (usingBackendLiveSpectrogram) {
+              backendSpectro.connect(activeSourceId);
+            }
             connectDetectionStream(activeSourceId);
           }
           isStreaming = true;
@@ -441,8 +464,10 @@
       } else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS (Safari)
         audioElement.src = hlsUrl;
-        await spectro.connect(audioElement);
-        if (signal.aborted) {
+        if (!usingBackendLiveSpectrogram) {
+          await spectro.connect(audioElement);
+        }
+        if (signal.aborted && !usingBackendLiveSpectrogram) {
           spectro.disconnect();
           return;
         }
@@ -454,8 +479,15 @@
           }
         }
         if (signal.aborted || !audioElement) return;
+        if (usingBackendLiveSpectrogram) {
+          audioElement.muted = !audioOutput;
+          backendSpectro.setGain(gainDb);
+        }
         startHeartbeat(activeStreamToken!);
         if (activeSourceId) {
+          if (usingBackendLiveSpectrogram) {
+            backendSpectro.connect(activeSourceId);
+          }
           connectDetectionStream(activeSourceId);
         }
         isStreaming = true;
@@ -576,6 +608,7 @@
     disconnectDetectionStream();
     currentWallClockAtPlayhead = 0;
     spectro.disconnect();
+    backendSpectro.disconnect();
 
     if (hls) {
       hls.destroy();
@@ -615,16 +648,26 @@
     if (audioElement) {
       if (audioElement.paused) {
         audioElement.play().catch(() => {
-        // If playback is still blocked, the spectrogram can still recover once
-        // a later user gesture resumes the AudioContext.
+          // If playback is still blocked, the spectrogram can still recover once
+          // a later user gesture resumes the AudioContext.
         });
       }
+      if (usingBackendLiveSpectrogram) {
+        audioElement.muted = !enabled;
+      }
+    }
+    if (usingBackendLiveSpectrogram) {
+      return;
     }
     spectro.setAudioOutput(enabled);
   }
 
   function handleGainChange(db: number) {
     gainDb = db;
+    if (usingBackendLiveSpectrogram) {
+      backendSpectro.setGain(db);
+      return;
+    }
     spectro.setGain(db);
   }
 
@@ -813,6 +856,43 @@
   // Detect WebKit/HLS sessions where the audio plays but the analyser keeps
   // returning all-zero FFT bins, which leaves the spectrogram black.
   $effect(() => {
+    if (usingBackendLiveSpectrogram) {
+      if (!audioElement || !isStreaming) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      const interval = globalThis.setInterval(() => {
+        if (!audioElement) return;
+
+        const mediaAdvancing =
+          !audioElement.paused && audioElement.currentTime > 0.5 && audioElement.readyState >= 2;
+        if (!mediaAdvancing) {
+          zeroSignalSinceMs = 0;
+          liveSignalUnavailable = false;
+          return;
+        }
+
+        if (backendSpectro.lastFrameAtMs > 0 && Date.now() - backendSpectro.lastFrameAtMs < ZERO_SIGNAL_GRACE_MS) {
+          zeroSignalSinceMs = 0;
+          liveSignalUnavailable = false;
+          return;
+        }
+
+        if (zeroSignalSinceMs === 0) {
+          zeroSignalSinceMs = Date.now();
+          return;
+        }
+
+        if (Date.now() - zeroSignalSinceMs >= ZERO_SIGNAL_GRACE_MS) {
+          liveSignalUnavailable = true;
+        }
+      }, ZERO_SIGNAL_CHECK_INTERVAL_MS);
+
+      return () => globalThis.clearInterval(interval);
+    }
+
     if (!audioElement || !spectro.analyser || !spectro.isActive || !isStreaming) {
       zeroSignalSinceMs = 0;
       liveSignalUnavailable = false;
@@ -943,19 +1023,25 @@
     <!-- Spectrogram canvas (fills remaining space) -->
     <div class="relative min-h-0 flex-1">
       {#if isStreaming || isConnecting}
-        <SpectrogramCanvas
-          analyser={spectro.analyser}
-          frequencyData={spectro.frequencyData}
-          sampleRate={spectro.sampleRate}
-          fftSize={spectro.fftSize}
-          {frequencyRange}
-          {colorMap}
-          isActive={spectro.isActive}
-          overlayLabels={showDetectionLabels ? overlayLabels : []}
-          debug={debugOverlay}
-          wallClockAtPlayhead={currentWallClockAtPlayhead}
-          className="h-full w-full"
-        />
+        {#if activeSpectrogramIsActive}
+          <SpectrogramCanvas
+            analyser={activeSpectrogramAnalyser}
+            frequencyData={activeSpectrogramFrequencyData}
+            sampleRate={activeSpectrogramSampleRate}
+            fftSize={activeSpectrogramFFTSize}
+            {frequencyRange}
+            {colorMap}
+            isActive={activeSpectrogramIsActive}
+            overlayLabels={showDetectionLabels ? overlayLabels : []}
+            debug={debugOverlay}
+            wallClockAtPlayhead={currentWallClockAtPlayhead}
+            className="h-full w-full"
+          />
+        {:else}
+          <div class="flex h-full w-full items-center justify-center bg-black">
+            <Loader2 class="size-8 animate-spin text-[var(--color-primary)]" />
+          </div>
+        {/if}
         {#if liveSignalUnavailable}
           <div
             class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/75 px-6 text-center"
