@@ -95,4 +95,23 @@ describe('DetectionCard', () => {
     expect(screen.queryByText('No recording available')).not.toBeInTheDocument();
     expect(screen.queryByText('No spectrogram available')).not.toBeInTheDocument();
   });
+
+  it('keeps the spectrogram image mounted while the loading spinner is visible', () => {
+    mockLoader.spectrogramUrl = '/api/v2/spectrogram/42?size=md&raw=true';
+    mockLoader.showSpinner = true;
+    mockLoader.state = 'loading';
+
+    const { container } = render(DetectionCard, {
+      props: {
+        detection: {
+          ...baseDetection,
+          clipName: 'northern_cardinal.wav',
+        },
+      },
+    });
+
+    const image = container.querySelector('img.spectrogram-image');
+    expect(image).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Spectrogram for Northern Cardinal' })).toBeInTheDocument();
+  });
 });
