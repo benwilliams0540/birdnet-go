@@ -239,3 +239,49 @@ func TestReadThermalZone_OutOfRangeTemperature(t *testing.T) {
 	_, ok := readThermalZone(tmpDir)
 	assert.False(t, ok, "out-of-range temperature should be rejected")
 }
+
+func TestReadThermalZoneAny_ValidUntypedZone(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "temp"), []byte("47000\n"), 0o600))
+
+	temp, ok := readThermalZoneAny(tmpDir)
+	require.True(t, ok)
+	assert.InDelta(t, 47.0, temp, 0.01)
+}
+
+func TestReadCPUTemperatureFromBasePath_FallsBackToUntypedZone(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	zone0 := filepath.Join(baseDir, "thermal_zone0")
+	require.NoError(t, os.Mkdir(zone0, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(zone0, "type"), []byte("gpu-thermal\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(zone0, "temp"), []byte("53000\n"), 0o600))
+
+	temp, ok := readCPUTemperatureFromBasePath(baseDir)
+	require.True(t, ok)
+	assert.InDelta(t, 53.0, temp, 0.01)
+}
+
+func TestReadCPUTemperatureFromBasePath_PrefersTypedCPUSensor(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+
+	fallbackZone := filepath.Join(baseDir, "thermal_zone0")
+	require.NoError(t, os.Mkdir(fallbackZone, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fallbackZone, "type"), []byte("gpu-thermal\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(fallbackZone, "temp"), []byte("53000\n"), 0o600))
+
+	cpuZone := filepath.Join(baseDir, "thermal_zone1")
+	require.NoError(t, os.Mkdir(cpuZone, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(cpuZone, "type"), []byte("cpu-thermal\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(cpuZone, "temp"), []byte("41000\n"), 0o600))
+
+	temp, ok := readCPUTemperatureFromBasePath(baseDir)
+	require.True(t, ok)
+	assert.InDelta(t, 41.0, temp, 0.01)
+}

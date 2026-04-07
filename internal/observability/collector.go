@@ -117,6 +117,10 @@ const (
 	// maxValidCelsius is the upper bound for valid CPU temperature readings.
 	// 120°C captures overheating events before thermal shutdown while filtering bogus values.
 	maxValidCelsius = 120.0
+	// fallbackMaxValidCelsius matches the permissive thermal-zone fallback used
+	// by the system temperature API for devices whose kernels do not label CPU
+	// thermal zones cleanly.
+	fallbackMaxValidCelsius = 110.0
 )
 
 // collect gathers all system metrics and records them as a single batch.
@@ -388,7 +392,15 @@ var cpuThermalSensorTypes = map[string]bool{
 // readCPUTemperature scans Linux thermal zones for a CPU temperature sensor.
 // Returns the temperature in Celsius and true if found, or 0 and false otherwise.
 func readCPUTemperature() (float64, bool) {
-	zones, err := filepath.Glob(filepath.Join(collectorThermalBasePath, "thermal_zone*"))
+	return readCPUTemperatureFromBasePath(collectorThermalBasePath)
+}
+
+// readCPUTemperatureFromBasePath scans thermal zones from a specific base path.
+// It first prefers known CPU sensor types, then falls back to any thermal zone
+// with a valid temperature reading. The fallback keeps the collector aligned
+// with the system temperature API on devices like the Uno Q.
+func readCPUTemperatureFromBasePath(basePath string) (float64, bool) {
+	zones, err := filepath.Glob(filepath.Join(basePath, "thermal_zone*"))
 	if err != nil || len(zones) == 0 {
 		return 0, false
 	}
@@ -402,6 +414,14 @@ func readCPUTemperature() (float64, bool) {
 			return temp, true
 		}
 	}
+
+	for _, zone := range zones {
+		temp, ok := readThermalZoneAny(zone)
+		if ok {
+			return temp, true
+		}
+	}
+
 	return 0, false
 }
 
@@ -432,6 +452,27 @@ func readThermalZone(zonePath string) (float64, bool) {
 	celsius := float64(milliCelsius) / milliToUnit
 
 	if celsius < 0 || celsius > maxValidCelsius {
+		return 0, false
+	}
+	return celsius, true
+}
+
+// readThermalZoneAny reads a thermal zone without filtering by sensor type.
+// This mirrors the API-level fallback used when thermal zone type files are
+// empty or misleading on some ARM platforms.
+func readThermalZoneAny(zonePath string) (float64, bool) {
+	tempData, err := os.ReadFile(filepath.Join(zonePath, "temp")) //nolint:gosec // system path from Glob
+	if err != nil {
+		return 0, false
+	}
+	milliCelsius, err := strconv.Atoi(strings.TrimSpace(string(tempData)))
+	if err != nil {
+		return 0, false
+	}
+
+	const milliToUnit = 1000.0
+	celsius := float64(milliCelsius) / milliToUnit
+	if celsius < 0 || celsius > fallbackMaxValidCelsius {
 		return 0, false
 	}
 	return celsius, true

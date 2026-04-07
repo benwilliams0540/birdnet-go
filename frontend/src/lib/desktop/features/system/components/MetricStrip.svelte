@@ -60,9 +60,22 @@
   let tempMin = $derived(hasTempHistory ? Math.min(...temperatureHistory) : temperatureValue);
   let tempMax = $derived(hasTempHistory ? Math.max(...temperatureHistory) : temperatureValue);
 
+  // Whether inference is currently idle (no recent inference activity)
+  let inferenceIsIdle = $derived(hasInferenceData && inferenceAvgMs === 0);
+
+  // Last non-zero inference value from history, for display during idle periods.
+  // reduceRight iterates from the tail so the first non-zero found is the most recent.
+  let inferenceLastActiveMs = $derived(
+    inferenceHistory.reduceRight((acc, v) => (acc === 0 && v > 0 ? v : acc), 0)
+  );
+
+  // Display value: show last active time when idle, otherwise current avg
+  let inferenceDisplayMs = $derived(inferenceIsIdle ? inferenceLastActiveMs : inferenceAvgMs);
+
   // Inference status based on avg vs threshold: OK < 70%, WARNING 70-100%, CRITICAL >= 100%
+  // Idle periods do not count as OK — they show a separate badge.
   let inferenceStatus = $derived.by(() => {
-    if (!hasInferenceData || inferenceThresholdMs == null) return null;
+    if (!hasInferenceData || inferenceIsIdle || inferenceThresholdMs == null) return null;
     const ratio = inferenceAvgMs / inferenceThresholdMs;
     if (ratio >= 1.0) return 'critical' as const;
     if (ratio >= 0.7) return 'warning' as const;
@@ -195,7 +208,12 @@
         <span class="text-xs font-medium text-muted">{t('system.metrics.inference')}</span>
       </div>
       <div class="flex items-center gap-2">
-        {#if inferenceStatus === 'ok'}
+        {#if inferenceIsIdle}
+          <span
+            class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded badge-status-neutral"
+            >Idle</span
+          >
+        {:else if inferenceStatus === 'ok'}
           <span
             class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded badge-status-success"
             >{t('system.metrics.statusOk')}</span
@@ -211,8 +229,10 @@
           >
         {/if}
         <span class="font-mono tabular-nums text-lg font-semibold">
-          {#if hasInferenceData}
-            {inferenceAvgMs.toFixed(0)}ms
+          {#if hasInferenceData && inferenceDisplayMs > 0}
+            {inferenceDisplayMs.toFixed(0)}ms
+          {:else if hasInferenceData}
+            —
           {:else}
             —
           {/if}
@@ -224,7 +244,11 @@
         <Sparkline data={inferenceHistory} color={sparklineColorInference} />
       </div>
       <div class="flex justify-between mt-2 text-[10px] text-muted">
-        <span>{t('system.metrics.avgTime')} {inferenceAvgMs.toFixed(1)}ms</span>
+        {#if inferenceIsIdle && inferenceLastActiveMs > 0}
+          <span>Last: {inferenceLastActiveMs.toFixed(1)}ms</span>
+        {:else}
+          <span>{t('system.metrics.avgTime')} {inferenceDisplayMs.toFixed(1)}ms</span>
+        {/if}
         <span>{inferenceHistory.length} {t('system.metrics.samples')}</span>
       </div>
     {:else}

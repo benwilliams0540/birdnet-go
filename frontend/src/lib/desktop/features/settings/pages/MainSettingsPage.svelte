@@ -107,6 +107,7 @@
     main: $mainSettings || { name: '' },
     birdnet: $birdnetSettings || {
       version: '2.4',
+      backend: 'auto',
       sensitivity: 1.0,
       threshold: 0.8,
       overlap: 0.0,
@@ -179,6 +180,7 @@
     hasSettingsChanged(
       {
         version: store.originalData.birdnet?.version,
+        backend: store.originalData.birdnet?.backend,
         sensitivity: store.originalData.birdnet?.sensitivity,
         threshold: store.originalData.birdnet?.threshold,
         overlap: store.originalData.birdnet?.overlap,
@@ -190,6 +192,7 @@
       },
       {
         version: store.formData.birdnet?.version,
+        backend: store.formData.birdnet?.backend,
         sensitivity: store.formData.birdnet?.sensitivity,
         threshold: store.formData.birdnet?.threshold,
         overlap: store.formData.birdnet?.overlap,
@@ -241,12 +244,126 @@
     data: [],
   });
 
+  interface BirdNETBackendCapability {
+    value: string;
+    label: string;
+    compiled: boolean;
+  }
+
+  interface BirdNETVersionCapability {
+    value: string;
+    label: string;
+    validBackends: string[];
+  }
+
+  interface BirdNETChangeAssessment {
+    requestedBackend: string;
+    effectiveBackend?: string;
+    version: string;
+    modelId?: string;
+    valid: boolean;
+    reason?: string;
+    changeMode: string;
+    restartRequired: boolean;
+  }
+
+  interface BirdNETCapabilitiesResponse {
+    compiledBackends: string[];
+    backends: BirdNETBackendCapability[];
+    versions: BirdNETVersionCapability[];
+    requestedChange: BirdNETChangeAssessment;
+    restartReasons?: string[];
+  }
+
+  let birdnetCapabilities = $state<ApiState<BirdNETCapabilitiesResponse | null>>({
+    loading: true,
+    error: null,
+    data: null,
+  });
+
   // Transform birdnetLocales to include flag locale code
   let birdnetLocaleOptions = $derived<BirdnetLocaleOption[]>(
     birdnetLocales.data.map(locale => ({
       value: locale.value,
       label: locale.label,
       localeCode: locale.value as FlagLocale,
+    }))
+  );
+
+  let selectedBirdnetBackend = $derived((settings.birdnet.backend ?? 'auto') || 'auto');
+  let selectedBirdnetVersion = $derived(settings.birdnet.version ?? '2.4');
+
+  let selectedBirdnetVersionCapability = $derived(
+    birdnetCapabilities.data?.versions.find(version => version.value === selectedBirdnetVersion) ??
+      null
+  );
+
+  let selectedBirdnetValidBackends = $derived(
+    selectedBirdnetVersionCapability?.validBackends ?? ['auto', 'tflite']
+  );
+
+  let birdnetBackendOptions = $derived<SelectOption[]>(
+    (
+      birdnetCapabilities.data?.backends ?? [
+        { value: 'auto', label: 'Auto', compiled: true },
+        { value: 'tflite', label: 'TFLite', compiled: true },
+        { value: 'onnx', label: 'ONNX', compiled: false },
+        { value: 'ncnn', label: 'NCNN', compiled: false },
+      ]
+    )
+      .filter(option => ['auto', 'tflite', 'onnx', 'ncnn'].includes(option.value))
+      .map(option => ({
+        value: option.value,
+        label:
+          option.value === 'auto'
+            ? 'Auto (Recommended)'
+            : option.value === 'tflite'
+              ? 'TFLite (Standard CPU)'
+              : option.value === 'onnx'
+                ? 'ONNX (Advanced CPU)'
+                : 'NCNN (GPU Accelerated)',
+        disabled:
+          option.value !== 'auto' &&
+          (!option.compiled || !selectedBirdnetValidBackends.includes(option.value)),
+      }))
+      .map(option =>
+        option.value === 'auto'
+          ? {
+              ...option,
+              disabled: !selectedBirdnetValidBackends.includes('auto'),
+            }
+          : option
+      )
+  );
+
+  let birdnetVersionOptions = $derived<SelectOption[]>(
+    (
+      birdnetCapabilities.data?.versions ?? [
+        { value: '2.4', label: 'BirdNET Global 6K V2.4', validBackends: ['auto', 'tflite'] },
+        {
+          value: '2.4-int8',
+          label: 'BirdNET Global 6K V2.4 INT8 (ONNX)',
+          validBackends: [],
+        },
+        {
+          value: '2.4-int8-cnn',
+          label: 'BirdNET Global 6K V2.4 INT8 CNN (ONNX)',
+          validBackends: [],
+        },
+        {
+          value: '3.0',
+          label: 'BirdNET+ V3.0 Preview 3 Global 11K',
+          validBackends: [],
+        },
+      ]
+    ).map(option => ({
+      value: option.value,
+      label: option.label,
+      disabled:
+        option.validBackends.length === 0 ||
+        (selectedBirdnetBackend === 'auto'
+          ? !option.validBackends.includes('auto')
+          : !option.validBackends.includes(selectedBirdnetBackend)),
     }))
   );
 
@@ -519,7 +636,7 @@
   });
 
   async function loadInitialData() {
-    await Promise.all([loadBirdnetLocales(), loadRangeFilterCount()]);
+    await Promise.all([loadBirdnetLocales(), loadBirdnetCapabilities(), loadRangeFilterCount()]);
   }
 
   async function loadBirdnetLocales() {
@@ -542,6 +659,75 @@
       birdnetLocales.loading = false;
     }
   }
+
+  async function loadBirdnetCapabilities(): Promise<void> {
+    birdnetCapabilities.loading = true;
+    birdnetCapabilities.error = null;
+
+    const params = new URLSearchParams({
+      backend: selectedBirdnetBackend,
+      version: selectedBirdnetVersion,
+      modelPath: settings.birdnet.modelPath ?? '',
+      labelPath: settings.birdnet.labelPath ?? '',
+      onnxRuntimePath: settings.birdnet.onnxRuntimePath ?? '',
+      ncnnModelDir: settings.birdnet.ncnnModelDir ?? '',
+    });
+
+    try {
+      birdnetCapabilities.data = await api.get<BirdNETCapabilitiesResponse>(
+        `/api/v2/system/birdnet/capabilities?${params.toString()}`
+      );
+    } catch (error) {
+      logger.error('Failed to load BirdNET capabilities:', error);
+      birdnetCapabilities.error = 'Failed to inspect BirdNET backend capabilities';
+    } finally {
+      birdnetCapabilities.loading = false;
+    }
+  }
+
+  let birdnetCapabilityTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    const backend = selectedBirdnetBackend;
+    const version = selectedBirdnetVersion;
+    const modelPath = settings.birdnet.modelPath ?? '';
+    const labelPath = settings.birdnet.labelPath ?? '';
+    const onnxRuntimePath = settings.birdnet.onnxRuntimePath ?? '';
+    const ncnnModelDir = settings.birdnet.ncnnModelDir ?? '';
+    void [backend, version, modelPath, labelPath, onnxRuntimePath, ncnnModelDir];
+
+    clearTimeout(birdnetCapabilityTimer);
+    birdnetCapabilityTimer = setTimeout(() => {
+      void loadBirdnetCapabilities();
+    }, 150);
+
+    return () => clearTimeout(birdnetCapabilityTimer);
+  });
+
+  $effect(() => {
+    if (
+      selectedBirdnetBackend !== 'auto' &&
+      !selectedBirdnetValidBackends.includes(selectedBirdnetBackend)
+    ) {
+      updateBirdnetSetting('backend', 'auto');
+    }
+  });
+
+  $effect(() => {
+    const selectedOption = birdnetVersionOptions.find(
+      option => option.value === selectedBirdnetVersion
+    );
+    if (selectedOption && !selectedOption.disabled) {
+      return;
+    }
+
+    const fallbackVersion = safeArrayAccess(
+      birdnetVersionOptions.filter(option => !option.disabled),
+      0
+    );
+    if (fallbackVersion?.value && fallbackVersion.value !== selectedBirdnetVersion) {
+      updateBirdnetSetting('version', fallbackVersion.value);
+    }
+  });
 
   // Load database statistics from the API
   async function loadDatabaseStats() {
@@ -955,6 +1141,36 @@
       debouncedTestRangeFilter();
     }
   });
+
+  // NCNN model directory scan state
+  interface NCNNScanResult {
+    found: boolean;
+    validated?: boolean;
+    ready?: boolean;
+    paramFile?: string;
+    binFile?: string;
+    validationMarker?: string;
+    error?: string;
+  }
+  let ncnnScanStatus = $state<NCNNScanResult | null>(null);
+  let ncnnScanning = $state(false);
+
+  async function scanNcnnModelDir(): Promise<void> {
+    const dir = (settings.birdnet.ncnnModelDir ?? '').trim();
+    if (!dir) return;
+    ncnnScanning = true;
+    ncnnScanStatus = null;
+    try {
+      const result = await api.get<NCNNScanResult>(
+        `/api/v2/settings/ncnn/scan?dir=${encodeURIComponent(dir)}`
+      );
+      ncnnScanStatus = result;
+    } catch {
+      ncnnScanStatus = { found: false, error: 'Scan request failed' };
+    } finally {
+      ncnnScanning = false;
+    }
+  }
 
   // Update handlers
   function updateMainName(name: string) {
@@ -1497,6 +1713,7 @@
       description={t('settings.main.sections.birdnet.description')}
       originalData={{
         version: store.originalData.birdnet?.version,
+        backend: store.originalData.birdnet?.backend,
         sensitivity: store.originalData.birdnet?.sensitivity,
         threshold: store.originalData.birdnet?.threshold,
         overlap: store.originalData.birdnet?.overlap,
@@ -1505,6 +1722,7 @@
       }}
       currentData={{
         version: settings.birdnet.version,
+        backend: settings.birdnet.backend,
         sensitivity: settings.birdnet.sensitivity,
         threshold: settings.birdnet.threshold,
         overlap: settings.birdnet.overlap,
@@ -1514,22 +1732,53 @@
     >
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <SelectDropdown
+          id="birdnet-backend"
+          value={settings.birdnet.backend ?? 'auto'}
+          label="Inference Backend"
+          options={birdnetBackendOptions}
+          disabled={store.isLoading || store.isSaving}
+          onChange={value =>
+            updateBirdnetSetting('backend', typeof value === 'string' ? value : value[0])}
+          helpText={birdnetCapabilities.data?.requestedChange.reason ??
+            'Select the inference engine. Auto only offers backends that are valid for the selected model and this build.'}
+        />
+
+        <SelectDropdown
           id="birdnet-version"
           value={settings.birdnet.version ?? '2.4'}
           label="Model Version"
-          options={[
-            { value: '2.4', label: 'BirdNET Global 6K V2.4' },
-            { value: '2.4-int8', label: 'BirdNET Global 6K V2.4 INT8 (ONNX)' },
-            { value: '2.4-int8-cnn', label: 'BirdNET Global 6K V2.4 INT8 CNN (ONNX/QNN)' },
-            { value: '2.4-cnn-fp32', label: 'BirdNET Global 6K V2.4 CNN FP32 (QNN)' },
-            { value: '2.4-cnn-fp16', label: 'BirdNET Global 6K V2.4 CNN FP16 (QNN)' },
-            { value: '2.4-cnn-int8', label: 'BirdNET Global 6K V2.4 CNN INT8 (QNN)' },
-            { value: '3.0', label: 'BirdNET+ V3.0 Preview 3 Global 11K' }
-          ]}
+          options={birdnetVersionOptions}
           disabled={store.isLoading || store.isSaving}
-          onChange={value => updateBirdnetSetting('version', typeof value === 'string' ? value : value[0])}
-          helpText="Select the classifier model. INT8/ONNX variants use CPU ONNX inference. CNN variants (FP32/FP16/INT8) require a QNN-enabled build and the corresponding model library in QNN Model Lib Dir."
+          onChange={value =>
+            updateBirdnetSetting('version', typeof value === 'string' ? value : value[0])}
+          helpText="Version choices are filtered against the selected backend and available model sources."
         />
+
+        {#if birdnetCapabilities.data?.requestedChange}
+          <div
+            class={`md:col-span-2 text-xs rounded-lg px-3 py-2 ${
+              birdnetCapabilities.data.requestedChange.changeMode === 'restart_required'
+                ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'
+                : birdnetCapabilities.data.requestedChange.changeMode === 'hot_reload'
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                  : birdnetCapabilities.data.requestedChange.changeMode === 'invalid'
+                    ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+                    : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {#if birdnetCapabilities.data.requestedChange.changeMode === 'hot_reload'}
+              Changes to the current BirdNET selection can hot-reload in place.
+            {:else if birdnetCapabilities.data.requestedChange.changeMode === 'restart_required'}
+              {birdnetCapabilities.data.requestedChange.reason ??
+                'A restart is required for this BirdNET change.'}
+            {:else if birdnetCapabilities.data.requestedChange.changeMode === 'invalid'}
+              {birdnetCapabilities.data.requestedChange.reason ??
+                'The selected backend/model combination is not valid.'}
+            {:else}
+              Current BirdNET selection is valid for this build.
+            {/if}
+          </div>
+        {/if}
 
         <NumberField
           label={t('settings.main.fields.sensitivity.label')}
@@ -1761,20 +2010,16 @@
       originalData={{
         modelPath: store.originalData.birdnet?.modelPath,
         labelPath: store.originalData.birdnet?.labelPath,
-        onnxRuntimePath: (store.originalData.birdnet as { onnxRuntimePath?: string | null })?.onnxRuntimePath,
-        qnnBackend: (store.originalData.birdnet as { qnnBackend?: string | null })?.qnnBackend,
-        qnnLibDir: (store.originalData.birdnet as { qnnLibDir?: string | null })?.qnnLibDir,
-        qnnModelLibDir: (store.originalData.birdnet as { qnnModelLibDir?: string | null })?.qnnModelLibDir,
-        ncnnModelDir: (store.originalData.birdnet as { ncnnModelDir?: string | null })?.ncnnModelDir,
+        onnxRuntimePath: (store.originalData.birdnet as { onnxRuntimePath?: string | null })
+          ?.onnxRuntimePath,
+        ncnnModelDir: (store.originalData.birdnet as { ncnnModelDir?: string | null })
+          ?.ncnnModelDir,
         ncnnUseVulkan: (store.originalData.birdnet as { ncnnUseVulkan?: boolean })?.ncnnUseVulkan,
       }}
       currentData={{
         modelPath: settings.birdnet.modelPath,
         labelPath: settings.birdnet.labelPath,
         onnxRuntimePath: settings.birdnet.onnxRuntimePath,
-        qnnBackend: settings.birdnet.qnnBackend,
-        qnnLibDir: settings.birdnet.qnnLibDir,
-        qnnModelLibDir: settings.birdnet.qnnModelLibDir,
         ncnnModelDir: settings.birdnet.ncnnModelDir,
         ncnnUseVulkan: settings.birdnet.ncnnUseVulkan,
       }}
@@ -1817,81 +2062,84 @@
           NCNN Hardware Acceleration
         </h4>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          NCNN Vulkan GPU acceleration for the BirdNET CNN sub-model (birdnet_cnn.param +
-          birdnet_cnn.bin). Requires birdnet-go built with <code class="font-mono">-tags ncnn</code>
-          and the NCNN model files generated by
-          <code class="font-mono">onnx2ncnn birdnet_cnn.onnx</code>. Leave blank to use ONNX or
-          TFLite inference.
+          NCNN Vulkan GPU acceleration for the split BirdNET V2.4 CNN model (<code class="font-mono"
+            >birdnet_cnn_only.param</code
+          >
+          + <code class="font-mono">birdnet_cnn_only.bin</code>) or a full-pipeline PNNX-style model
+          (<code class="font-mono">birdnet.pnnx.param</code>
+          +
+          <code class="font-mono">birdnet.pnnx.bin</code>). Requires birdnet-go built with
+          <code class="font-mono">-tags ncnn</code>. Select the
+          <strong>NCNN</strong> inference backend above to activate.
         </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <TextInput
-            id="ncnn-model-dir"
-            value={settings.birdnet.ncnnModelDir ?? ''}
-            label="NCNN Model Dir"
-            placeholder="/opt/birdnet-go/model/ncnn"
-            helpText="Directory containing birdnet_cnn.param and birdnet_cnn.bin (CNN sub-model in NCNN format). Set to enable NCNN inference."
-            disabled={store.isLoading || store.isSaving}
-            onchange={value => updateBirdnetSetting('ncnnModelDir', value)}
-          />
+        <div class="grid grid-cols-1 gap-4">
+          <!-- Model directory with inline scan -->
+          <div>
+            <div class="flex gap-2 items-end">
+              <div class="flex-1">
+                <TextInput
+                  id="ncnn-model-dir"
+                  value={settings.birdnet.ncnnModelDir ?? ''}
+                  label="NCNN Model Directory"
+                  placeholder="/opt/birdnet-go/model"
+                  helpText="Directory containing validated NCNN artifacts, such as birdnet_cnn_only.param/.bin or birdnet.pnnx.param/.bin, plus a BirdNET-Go validation marker."
+                  disabled={store.isLoading || store.isSaving}
+                  onchange={value => {
+                    updateBirdnetSetting('ncnnModelDir', value);
+                    ncnnScanStatus = null;
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                class="mb-5 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                disabled={store.isLoading ||
+                  store.isSaving ||
+                  ncnnScanning ||
+                  !(settings.birdnet.ncnnModelDir ?? '').trim()}
+                onclick={scanNcnnModelDir}
+              >
+                {#if ncnnScanning}
+                  Scanning…
+                {:else}
+                  Verify
+                {/if}
+              </button>
+            </div>
+            {#if ncnnScanStatus}
+              <div
+                class="mt-1 flex items-center gap-1.5 text-xs px-2 py-1 rounded {ncnnScanStatus.ready
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  : ncnnScanStatus.found
+                    ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+                    : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'}"
+              >
+                {#if ncnnScanStatus.ready}
+                  ✓ Ready: <code class="font-mono">{ncnnScanStatus.paramFile}</code> +
+                  <code class="font-mono">{ncnnScanStatus.binFile}</code>
+                  {#if ncnnScanStatus.validationMarker}
+                    + <code class="font-mono">{ncnnScanStatus.validationMarker}</code>
+                  {/if}
+                {:else if ncnnScanStatus.found}
+                  ! {ncnnScanStatus.error ??
+                    'NCNN files were found, but the directory is not validated yet'}
+                {:else}
+                  ✗ {ncnnScanStatus.error ?? 'Model files not found'}
+                {/if}
+              </div>
+            {/if}
+          </div>
 
-          <div class="flex items-center pt-6">
+          <!-- Vulkan toggle -->
+          <div>
             <Checkbox
-              checked={settings.birdnet.ncnnUseVulkan}
+              checked={settings.birdnet.ncnnUseVulkan ?? false}
               label="Use Vulkan GPU"
               helpText="Enable Vulkan GPU acceleration via NCNN. On the Arduino Uno Q, this uses the Adreno 702 GPU via Mesa Turnip. Disable to use CPU-only NCNN inference."
               disabled={store.isLoading || store.isSaving}
               onchange={value => updateBirdnetSetting('ncnnUseVulkan', value)}
             />
           </div>
-        </div>
-      </div>
-
-      <!-- QNN Hardware Acceleration -->
-      <div class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
-        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
-          QNN Hardware Acceleration
-        </h4>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          Qualcomm Neural Network (QNN) acceleration for INT8 CNN models on Adreno GPU or Hexagon
-          DSP. Requires birdnet-go built with <code class="font-mono">-tags qnn</code> and the QAIRT
-          SDK libraries deployed on the device. Leave blank to use CPU inference.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <SelectDropdown
-            id="qnn-backend"
-            value={settings.birdnet.qnnBackend ?? ''}
-            label="QNN Backend"
-            options={[
-              { value: '', label: 'Disabled (standard CPU inference)' },
-              { value: 'cpu', label: 'CPU (libQnnCpu.so) — confirmed working' },
-              { value: 'gpu', label: 'GPU — Adreno via OpenCL (libQnnGpu.so)' },
-              { value: 'htp', label: 'HTP — Hexagon DSP (libQnnHtp.so)' }
-            ]}
-            disabled={store.isLoading || store.isSaving}
-            onChange={value =>
-              updateBirdnetSetting('qnnBackend', typeof value === 'string' ? value : value[0])}
-            helpText="Select the QNN backend. CPU backend requires fake_soc.so LD_PRELOAD and a CNN model variant. GPU uses Adreno OpenCL (blocked on Mesa Rusticl). HTP uses the Hexagon DSP (blocked on missing fastrpc device)."
-          />
-
-          <TextInput
-            id="qnn-lib-dir"
-            value={settings.birdnet.qnnLibDir ?? ''}
-            label="QNN Lib Dir"
-            placeholder="/opt/qnn"
-            helpText="Directory containing the QNN backend library (libQnnCpu.so, libQnnGpu.so, or libQnnHtp.so) and libQnnSystem.so from the QAIRT SDK."
-            disabled={store.isLoading || store.isSaving}
-            onchange={value => updateBirdnetSetting('qnnLibDir', value)}
-          />
-
-          <TextInput
-            id="qnn-model-lib-dir"
-            value={settings.birdnet.qnnModelLibDir ?? ''}
-            label="QNN Model Lib Dir"
-            placeholder="/opt/qnn"
-            helpText="Directory containing the compiled QNN model library (libmodel_net.so) or pre-compiled context binary (*_context.bin). Generate using qnn-onnx-converter + qnn-model-lib-generator from the QAIRT SDK."
-            disabled={store.isLoading || store.isSaving}
-            onchange={value => updateBirdnetSetting('qnnModelLibDir', value)}
-          />
         </div>
       </div>
     </SettingsSection>

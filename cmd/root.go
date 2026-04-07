@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/tphakala/birdnet-go/cmd/authors"
 	"github.com/tphakala/birdnet-go/cmd/benchmark"
+	"github.com/tphakala/birdnet-go/cmd/compareaudio"
 	"github.com/tphakala/birdnet-go/cmd/license"
 	"github.com/tphakala/birdnet-go/cmd/notify"
 	"github.com/tphakala/birdnet-go/cmd/rangefilter"
@@ -38,6 +39,7 @@ func RootCommand(settings *conf.Settings) *cobra.Command {
 	rangeCmd := rangefilter.Command(settings)
 	supportCmd := support.Command(settings)
 	benchmarkCmd := benchmark.Command(settings)
+	compareAudioCmd := compareaudio.Command(settings)
 	notifyCmd := notify.Command(settings)
 
 	subcommands := []*cobra.Command{
@@ -47,6 +49,7 @@ func RootCommand(settings *conf.Settings) *cobra.Command {
 		rangeCmd,
 		supportCmd,
 		benchmarkCmd,
+		compareAudioCmd,
 		notifyCmd,
 	}
 

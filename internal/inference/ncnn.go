@@ -8,8 +8,8 @@ import (
 
 // NCNNClassifierOptions configures an NCNN-accelerated classifier.
 type NCNNClassifierOptions struct {
-	// ModelDir is the directory containing birdnet_cnn.param and birdnet_cnn.bin.
-	// These are produced by running onnx2ncnn on the BirdNET CNN sub-model.
+	// ModelDir is the directory containing a validated NCNN artifact pair such as
+	// birdnet_cnn_only.param/bin or birdnet.pnnx.param/bin.
 	ModelDir string
 	// Threads is the number of CPU threads. 0 = NCNN default (all cores).
 	Threads int

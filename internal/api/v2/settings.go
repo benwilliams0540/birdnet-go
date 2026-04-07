@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
 	"reflect"
 	"slices"
 	"sort"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/tphakala/birdnet-go/internal/audiocore/schedule"
+	"github.com/tphakala/birdnet-go/internal/classifier"
 	"github.com/tphakala/birdnet-go/internal/conf"
 	"github.com/tphakala/birdnet-go/internal/imageprovider"
 	"github.com/tphakala/birdnet-go/internal/logger"
@@ -57,6 +59,8 @@ func (c *Controller) initSettingsRoutes() {
 	settingsGroup.GET("/imageproviders", c.GetImageProviders)
 	// GET /api/v2/settings/systemid - Retrieves the system ID for support tracking (must be before /:section)
 	settingsGroup.GET("/systemid", c.GetSystemID)
+	// GET /api/v2/settings/ncnn/scan - Scans a directory for NCNN model files (must be before /:section)
+	settingsGroup.GET("/ncnn/scan", c.ScanNCNNModelDir)
 	// GET /api/v2/settings/:section - Retrieves settings for a specific section (e.g., birdnet, webserver)
 	settingsGroup.GET("/:section", c.GetSectionSettings)
 	// PUT /api/v2/settings - Updates multiple settings sections with complete replacement
@@ -204,6 +208,12 @@ func (c *Controller) UpdateSettings(ctx echo.Context) error {
 	if err := conf.ValidateSettings(settings); err != nil {
 		*settings = oldSettings
 		return c.HandleError(ctx, err, "Invalid settings", http.StatusBadRequest)
+	}
+	if birdnetRelevantConfigsChanged(oldSettings.BirdNET, settings.BirdNET) {
+		if err := validateBirdNETConfigSelection(settings.BirdNET); err != nil {
+			*settings = oldSettings
+			return c.HandleError(ctx, err, "Invalid BirdNET backend selection", http.StatusBadRequest)
+		}
 	}
 
 	// Check if any important settings have changed and trigger actions as needed
@@ -530,6 +540,12 @@ func (c *Controller) UpdateSectionSettings(ctx echo.Context) error {
 		*settings = oldSettings
 		return c.HandleError(ctx, err,
 			fmt.Sprintf("Invalid %s settings", section), http.StatusBadRequest)
+	}
+	if birdnetRelevantConfigsChanged(oldSettings.BirdNET, settings.BirdNET) {
+		if err := validateBirdNETConfigSelection(settings.BirdNET); err != nil {
+			*settings = oldSettings
+			return c.HandleError(ctx, err, "Invalid BirdNET backend selection", http.StatusBadRequest)
+		}
 	}
 
 	if err := c.handleSettingsChanges(&oldSettings, settings); err != nil {
@@ -1873,7 +1889,6 @@ type settingsChangeCheck struct {
 // settingsChangeChecks defines all settings change detectors in order of execution.
 // Each check has a detection function, action to trigger, and toast notification.
 var settingsChangeChecks = []settingsChangeCheck{
-	{"BirdNET", "reload_birdnet", birdnetSettingsChanged, "Reloading BirdNET model with new settings...", notification.MsgSettingsReloadingBirdnet, "info", toastDurationLong},
 	{"Range filter", "rebuild_range_filter", rangeFilterSettingsChanged, "Rebuilding species range filter...", notification.MsgSettingsRebuildingRangeFilter, "info", toastDurationMedium},
 	{"Species interval", "update_detection_intervals", intervalSettingsChanged, "Updating detection intervals...", notification.MsgSettingsUpdatingIntervals, "info", toastDurationShort},
 	{"Base threshold", "recalculate_dynamic_thresholds", baseThresholdChanged, "Recalculating dynamic thresholds...", notification.MsgSettingsRecalculatingThresholds, "info", toastDurationShort},
@@ -1891,6 +1906,22 @@ var settingsChangeChecks = []settingsChangeCheck{
 // handleSettingsChanges checks if important settings have changed and triggers appropriate actions
 func (c *Controller) handleSettingsChanges(oldSettings, currentSettings *conf.Settings) error {
 	var reconfigActions []string
+
+	birdnetAssessment := assessBirdNETChange(oldSettings.BirdNET, currentSettings.BirdNET)
+	if birdnetRelevantConfigsChanged(oldSettings.BirdNET, currentSettings.BirdNET) {
+		switch birdnetAssessment.ChangeMode {
+		case birdnetChangeModeHotReload:
+			reconfigActions = append(reconfigActions, SignalReloadModel)
+			_ = c.SendToastWithKey("Reloading BirdNET model with new settings...", "info", toastDurationLong,
+				notification.MsgSettingsReloadingBirdnet, nil)
+		case birdnetChangeModeRestartRequired:
+			reason := birdnetAssessment.Reason
+			if strings.TrimSpace(reason) == "" {
+				reason = "BirdNET model selection changed. Restart required to apply."
+			}
+			_ = c.SendToast(reason, "warning", toastDurationExtended)
+		}
+	}
 
 	// Process all settings change checks using table-driven approach
 	for _, check := range settingsChangeChecks {
@@ -1910,6 +1941,8 @@ func (c *Controller) handleSettingsChanges(oldSettings, currentSettings *conf.Se
 	}
 	reconfigActions = append(reconfigActions, audioActions...)
 
+	replaceSettingsRestartReasons(collectSettingsRestartReasons(oldSettings, currentSettings))
+
 	// Trigger reconfigurations asynchronously
 	if len(reconfigActions) > 0 {
 		go func(actions []string) {
@@ -1924,6 +1957,30 @@ func (c *Controller) handleSettingsChanges(oldSettings, currentSettings *conf.Se
 	return nil
 }
 
+func collectSettingsRestartReasons(oldSettings, currentSettings *conf.Settings) []string {
+	reasons := make([]string, 0, 5)
+
+	if assessment := assessBirdNETChange(oldSettings.BirdNET, currentSettings.BirdNET); assessment.ChangeMode == birdnetChangeModeRestartRequired {
+		if strings.TrimSpace(assessment.Reason) != "" {
+			reasons = append(reasons, assessment.Reason)
+		}
+	}
+	if webserverSettingsChanged(oldSettings, currentSettings) {
+		reasons = append(reasons, "Web server settings changed")
+	}
+	if audioDeviceSettingChanged(oldSettings, currentSettings) {
+		reasons = append(reasons, "Audio device changed")
+	}
+	if extendedCaptureBufferChanged(oldSettings, currentSettings) {
+		reasons = append(reasons, "Extended capture buffer settings changed")
+	}
+	if equalizerSettingsChanged(oldSettings.Realtime.Audio.Equalizer, currentSettings.Realtime.Audio.Equalizer) {
+		reasons = append(reasons, "Audio equalizer settings changed")
+	}
+
+	return reasons
+}
+
 // intervalSettingsChanged checks if species interval or global interval settings have changed.
 func intervalSettingsChanged(old, current *conf.Settings) bool {
 	return speciesIntervalSettingsChanged(old, current) || old.Realtime.Interval != current.Realtime.Interval
@@ -1931,32 +1988,7 @@ func intervalSettingsChanged(old, current *conf.Settings) bool {
 
 // birdnetSettingsChanged checks if BirdNET settings have changed
 func birdnetSettingsChanged(oldSettings, currentSettings *conf.Settings) bool {
-	// Check for changes in BirdNET locale
-	if oldSettings.BirdNET.Locale != currentSettings.BirdNET.Locale {
-		return true
-	}
-
-	// Check for changes in BirdNET threads
-	if oldSettings.BirdNET.Threads != currentSettings.BirdNET.Threads {
-		return true
-	}
-
-	// Check for changes in BirdNET model path
-	if oldSettings.BirdNET.ModelPath != currentSettings.BirdNET.ModelPath {
-		return true
-	}
-
-	// Check for changes in BirdNET label path
-	if oldSettings.BirdNET.LabelPath != currentSettings.BirdNET.LabelPath {
-		return true
-	}
-
-	// Check for changes in BirdNET XNNPACK acceleration
-	if oldSettings.BirdNET.UseXNNPACK != currentSettings.BirdNET.UseXNNPACK {
-		return true
-	}
-
-	return false
+	return birdnetRelevantConfigsChanged(oldSettings.BirdNET, currentSettings.BirdNET)
 }
 
 // baseThresholdChanged checks if the global BirdNET confidence threshold has changed.
@@ -2300,6 +2332,74 @@ func (c *Controller) GetSystemID(ctx echo.Context) error {
 	// Return system ID in the format expected by the frontend
 	response := map[string]string{
 		"systemID": settings.SystemID,
+	}
+
+	return ctx.JSON(http.StatusOK, response)
+}
+
+// NCNNScanResponse is the JSON response for GET /api/v2/settings/ncnn/scan.
+type NCNNScanResponse struct {
+	Dir              string `json:"dir"`
+	Found            bool   `json:"found"`
+	Validated        bool   `json:"validated"`
+	Ready            bool   `json:"ready"`
+	ParamFile        string `json:"paramFile,omitempty"`
+	BinFile          string `json:"binFile,omitempty"`
+	ValidationMarker string `json:"validationMarker,omitempty"`
+	Error            string `json:"error,omitempty"`
+}
+
+// ScanNCNNModelDir handles GET /api/v2/settings/ncnn/scan?dir=<path>
+// It checks whether the specified directory contains a valid pair of NCNN model files
+// (.param + .bin) using the same filename patterns as the NCNN classifier backend.
+func (c *Controller) ScanNCNNModelDir(ctx echo.Context) error {
+	dir := ctx.QueryParam("dir")
+	if dir == "" {
+		return c.HandleError(ctx, fmt.Errorf("missing dir parameter"), "dir query parameter is required", http.StatusBadRequest)
+	}
+
+	// Basic path safety: reject obvious traversal attempts in the raw string
+	if strings.Contains(dir, "..") {
+		return c.HandleError(ctx, fmt.Errorf("path traversal not allowed"), "Invalid path", http.StatusBadRequest)
+	}
+
+	response := NCNNScanResponse{
+		Dir:              dir,
+		ValidationMarker: classifier.NCNNValidationMarkerName,
+	}
+
+	// Check directory exists and is accessible
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			response.Error = "Directory does not exist"
+			return ctx.JSON(http.StatusOK, response)
+		}
+		response.Error = "Cannot access directory"
+		return ctx.JSON(http.StatusOK, response)
+	}
+	if !info.IsDir() {
+		response.Error = "Path is not a directory"
+		return ctx.JSON(http.StatusOK, response)
+	}
+
+	status := classifier.InspectNCNNModelDir(dir)
+	response.Found = status.Found
+	response.Validated = status.Validated
+	response.Ready = status.Found && status.Validated
+	response.ParamFile = status.ParamFile
+	response.BinFile = status.BinFile
+
+	switch {
+	case response.Ready:
+		return ctx.JSON(http.StatusOK, response)
+	case response.Found:
+		response.Error = fmt.Sprintf(
+			"NCNN model files were found, but %s is missing. Only validated NCNN artifacts are selectable.",
+			classifier.NCNNValidationMarkerName,
+		)
+	default:
+		response.Error = "No NCNN model files found (looking for birdnet_cnn_only.param/.bin, birdnet.pnnx.param/.bin, birdnet_cnn.param/.bin, or model.param/.bin)"
 	}
 
 	return ctx.JSON(http.StatusOK, response)

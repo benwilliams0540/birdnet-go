@@ -1106,6 +1106,7 @@ type BirdNETConfig struct {
 	RangeFilter        RangeFilterSettings `yaml:"rangefilter" json:"rangeFilter"`                             // range filter settings
 	ModelPath          string              `yaml:"modelpath,omitempty" json:"modelPath,omitempty"`             // path to external model file (empty for embedded)
 	LabelPath          string              `yaml:"labelpath,omitempty" json:"labelPath,omitempty"`             // path to external label file (empty for embedded)
+	Backend            string              `yaml:"backend,omitempty" json:"backend,omitempty"`                 // explicit inference backend: "tflite", "onnx", "ncnn", "qnn" (empty for auto)
 	Labels             []string            `yaml:"-" json:"-"`                                                 // list of available species labels, runtime value
 	UseXNNPACK         bool                `yaml:"usexnnpack" json:"useXnnpack"`                               // true to use XNNPACK delegate for inference acceleration
 	ONNXRuntimePath    string              `yaml:"onnxruntimepath,omitempty" json:"onnxRuntimePath,omitempty"` // path to ONNX Runtime shared library (required for ONNX models)

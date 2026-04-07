@@ -788,7 +788,18 @@ func (p *Processor) shouldFilterDetection(result datastore.Results, commonName, 
 		confidenceThreshold = baseThreshold
 	}
 
-	// Check confidence threshold
+	// Check confidence threshold (including NaN protection)
+	if result.Confidence != result.Confidence {
+		if p.Settings.Debug {
+			GetLogger().Debug("Detection filtered out: confidence is NaN",
+				logger.String("species", result.Species),
+				logger.String("source", p.getDisplayNameForSource(source)),
+				logger.String("model_id", modelID),
+				logger.String("operation", "confidence_filter"))
+		}
+		return true, 0
+	}
+
 	if result.Confidence <= confidenceThreshold {
 		if p.Settings.Debug {
 			GetLogger().Debug("Detection filtered out due to low confidence",

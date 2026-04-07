@@ -1,5 +1,6 @@
 bin/birdnet-go
 bin/birdnet-go.exe
+bin/
 assets/tailwind.css
 log/
 clips/
@@ -32,6 +33,14 @@ birdnet.db-wal
 birdnet.txt
 custom_confidence_list.txt
 node_modules
+compare_results/
+source_models/*.onnx
+source_models/*.tflite
+source_models/*.csv
+source_models/*.txt
+source_models/*.cnn_only.onnx
+source_models/*.pnnxsim.onnx
+!source_models/*.py
 Unraid/SUBMISSION.md
 frontend/node_modules
 frontend/dist/

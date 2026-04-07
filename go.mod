@@ -34,8 +34,10 @@ require (
 	github.com/testcontainers/testcontainers-go v0.41.0
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.41.0
 	github.com/tphakala/flac v0.0.0-20241217200312-20d6d98f5ee3
+	github.com/tphakala/go-audio-resampler v1.2.0
 	github.com/tphakala/go-tflite v0.2.1
 	github.com/tphakala/simd v1.0.22
+	github.com/yalue/onnxruntime_go v1.27.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
@@ -82,6 +84,7 @@ require (
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
+	github.com/madelynnblue/go-dsp v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/markbates/going v1.0.3 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -99,8 +102,6 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.2 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
-	github.com/tphakala/go-audio-resampler v1.2.0 // indirect
-	github.com/yalue/onnxruntime_go v1.27.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
 	go.opentelemetry.io/otel v1.42.0 // indirect

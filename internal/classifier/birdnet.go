@@ -17,11 +17,9 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/tphakala/birdnet-go/internal/conf"
-	"github.com/tphakala/birdnet-go/internal/cpuspec"
 	"github.com/tphakala/birdnet-go/internal/datastore"
 	"github.com/tphakala/birdnet-go/internal/errors"
 	"github.com/tphakala/birdnet-go/internal/inference"
-	"github.com/tphakala/birdnet-go/internal/inference/tflite"
 	"github.com/tphakala/birdnet-go/internal/logger"
 	"github.com/tphakala/birdnet-go/internal/telemetry"
 )
@@ -191,110 +189,52 @@ func isONNXModel(path string) bool {
 // initializeModel loads and initializes the primary BirdNET model.
 //
 // Dispatch priority:
-//  1. NCNN — when NCNNModelDir is set and ncnn build tag is active.
+//  1. NCNN — when NCNNModelDir points at validated NCNN artifacts and the ncnn build tag is active.
 //  2. QNN hardware acceleration — when QNNBackend is set and qnn build tag is active.
 //  3. ONNX Runtime — when the model path ends in .onnx, or the registry entry
 //     declares IsONNX (e.g. embedded quantized models).
 //  4. TFLite — for all other cases.
 func (bn *BirdNET) initializeModel() error {
-	// 1. NCNN path.
-	if isNCNNSupported() && bn.Settings.BirdNET.NCNNModelDir != "" {
-		if err := bn.initializeNCNNModel(); err != nil {
-			return errors.New(err).
-				Category(errors.CategoryModelInit).
-				Context("backend", "ncnn").
-				Build()
+	// 1. Explicit backend override.
+	switch strings.ToLower(bn.Settings.BirdNET.Backend) {
+	case "ncnn":
+		return bn.initializeNCNNModel()
+	case "qnn":
+		return bn.initializeQNNModel()
+	case "onnx":
+		return bn.initializeONNXModel()
+	case "tflite":
+		if isTFLiteSupported() {
+			return bn.initializeTFLiteModel()
 		}
-		return nil
+		return errors.Newf("TFLite backend selected but not supported in this build").
+			Category(errors.CategoryModelInit).
+			Build()
 	}
 
-	// 2. QNN hardware acceleration path.
+	// 2. NCNN path (auto-detection).
+	if isNCNNSupported() && NCNNModelDirReady(bn.Settings.BirdNET.NCNNModelDir) {
+		return bn.initializeNCNNModel()
+	}
+
+	// 3. QNN hardware acceleration path (auto-detection).
 	if isQNNSupported() && bn.Settings.BirdNET.QNNBackend != "" {
-		if err := bn.initializeQNNModel(); err != nil {
-			// Fatal: the user explicitly configured a QNN backend.
-			return errors.New(err).
-				Category(errors.CategoryModelInit).
-				Context("backend", bn.Settings.BirdNET.QNNBackend).
-				Build()
-		}
-		return nil
+		return bn.initializeQNNModel()
 	}
 
-	// 3. ONNX Runtime path.
+	// 4. ONNX Runtime path (auto-detection).
 	if isONNXModel(bn.Settings.BirdNET.ModelPath) || bn.ModelInfo.IsONNX {
 		return bn.initializeONNXModel()
 	}
 
-	// 4. TFLite path.
-	return bn.initializeTFLiteModel()
-}
-
-// initializeTFLiteModel loads and initializes a TFLite model as the classifier backend.
-func (bn *BirdNET) initializeTFLiteModel() error {
-	start := time.Now()
-
-	modelData, err := bn.loadModel()
-	if err != nil {
-		return errors.New(err).
-			Category(errors.CategoryModelLoad).
-			ModelContext(bn.Settings.BirdNET.ModelPath, bn.ModelInfo.ID).
-			Timing("model-load", time.Since(start)).
-			Build()
+	// 5. TFLite path (fallback).
+	if isTFLiteSupported() {
+		return bn.initializeTFLiteModel()
 	}
 
-	log := GetLogger()
-	classifier, threads, err := tflite.NewTFLiteClassifier(modelData, tflite.TFLiteClassifierOptions{
-		Threads:    bn.Settings.BirdNET.Threads,
-		UseXNNPACK: bn.Settings.BirdNET.UseXNNPACK,
-		ErrorFunc: func(msg string) {
-			log.Error("TFLite error", logger.String("message", msg))
-		},
-		WarnFunc: func(msg string) {
-			log.Warn(msg, logger.String("tflite_download", "https://github.com/tphakala/tflite_c/releases/tag/v2.17.1"))
-		},
-	})
-	if err != nil {
-		return errors.New(err).
-			Category(errors.CategoryModelInit).
-			ModelContext(bn.Settings.BirdNET.ModelPath, bn.ModelInfo.ID).
-			Context("model_size_mb", len(modelData)/1024/1024).
-			Context("use_xnnpack", bn.Settings.BirdNET.UseXNNPACK).
-			Timing("model-init", time.Since(start)).
-			Build()
-	}
-
-	bn.classifier = classifier
-
-	// Update the human-readable model version string for display when a custom
-	// model path is provided. Model identity (ModelInfo.ID) is never modified
-	// here — it was fully resolved by NewBirdNET's 4-tier resolution chain.
-	if bn.Settings.BirdNET.ModelPath != "" {
-		bn.modelVersion = bn.Settings.BirdNET.ModelPath
-	}
-
-	// Log model initialization details
-	if bn.Settings.BirdNET.Threads == 0 {
-		spec := cpuspec.GetCPUSpec()
-		if spec.PerformanceCores > 0 {
-			log.Info("BirdNET model initialized",
-				logger.String("model", bn.modelVersion),
-				logger.Int("threads", threads),
-				logger.Int("performance_cores", spec.PerformanceCores),
-				logger.Int("total_cpus", runtime.NumCPU()))
-		} else {
-			log.Info("BirdNET model initialized",
-				logger.String("model", bn.modelVersion),
-				logger.Int("threads", threads),
-				logger.Int("total_cpus", runtime.NumCPU()))
-		}
-	} else {
-		log.Info("BirdNET model initialized",
-			logger.String("model", bn.modelVersion),
-			logger.Int("threads", threads),
-			logger.Int("total_cpus", runtime.NumCPU()),
-			logger.Bool("threads_configured", true))
-	}
-	return nil
+	return errors.Newf("no supported inference backend available for the selected model").
+		Category(errors.CategoryModelInit).
+		Build()
 }
 
 // getMetaModelData returns the appropriate meta model data based on the settings.
@@ -380,31 +320,12 @@ func (bn *BirdNET) initializeMetaModel() error {
 		return bn.initializeONNXMetaModel()
 	}
 
-	return bn.initializeTFLiteMetaModel()
-}
-
-// initializeTFLiteMetaModel loads and initializes a TFLite range filter model.
-func (bn *BirdNET) initializeTFLiteMetaModel() error {
-	start := time.Now()
-
-	metaModelData, err := bn.getMetaModelData()
-	if err != nil {
-		return err
+	if isTFLiteSupported() {
+		return bn.initializeTFLiteMetaModel()
 	}
 
-	rangeFilter, err := tflite.NewTFLiteRangeFilter(metaModelData, func(msg string) {
-		GetLogger().Error("TFLite meta model error", logger.String("message", msg))
-	})
-	if err != nil {
-		return errors.New(err).
-			Category(errors.CategoryModelInit).
-			Context("model_type", "range_filter").
-			Context("range_filter_model", bn.Settings.BirdNET.RangeFilter.Model).
-			Timing("meta-model-init", time.Since(start)).
-			Build()
-	}
-
-	bn.rangeFilter = rangeFilter
+	// Final fallback: just log warning instead of failing if no backend is available
+	bn.Debug("No supported inference backend available for range filtering (TFLite/ONNX disabled or missing gems). Skipping range filter.")
 	return nil
 }
 

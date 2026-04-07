@@ -37,7 +37,7 @@ tasks:
     desc: Run tests for the application
     cmds:
       # Use noembed,skipfrontend tags to skip model and frontend embedding for faster tests
-      - go test -tags noembed,skipfrontend ./... {{.TEST_FLAGS}}
+      - go test -tags noembed,skipfrontend,notflite ./... {{.TEST_FLAGS}}
     vars:
       TEST_FLAGS: '{{default "" .CLI_ARGS}}'
 
@@ -54,7 +54,7 @@ tasks:
     cmds:
       - mkdir -p coverage
       # Use noembed,skipfrontend tags to skip model and frontend embedding for faster tests
-      - go test -tags noembed,skipfrontend ./... -coverprofile=coverage/coverage.out {{.TEST_FLAGS}}
+      - go test -tags noembed,skipfrontend,notflite ./... -coverprofile=coverage/coverage.out {{.TEST_FLAGS}}
       - go tool cover -html=coverage/coverage.out -o coverage/coverage.html
     vars:
       TEST_FLAGS: '{{default "" .CLI_ARGS}}'
@@ -76,7 +76,7 @@ tasks:
         fi
         # Use noembed,skipfrontend tags to skip model and frontend embedding for faster linting
         {{.CGO_FLAGS}} CGO_LDFLAGS="-L${LIB_DIR} -ltensorflowlite_c" \
-        golangci-lint run --build-tags=noembed,skipfrontend {{.CLI_ARGS}}
+        golangci-lint run --build-tags=noembed,skipfrontend,notflite {{.CLI_ARGS}}
     vars:
       CLI_ARGS: '{{default "-v" .CLI_ARGS}}'
 
@@ -920,6 +920,115 @@ tasks:
         GOOS=linux GOARCH=arm64 {{.CGO_FLAGS}} \
         CGO_LDFLAGS="-L{{.TFLITE_LIB_DIR}} -ltensorflowlite_c" \
         go build -trimpath {{.BUILD_FLAGS}} -o {{.BINARY_DIR}}/{{.BINARY_NAME}}
+
+  unoq:
+    desc: Cross-compile combined TFLite + ONNX + NCNN binary for Arduino Uno Q (arm64 Linux)
+    deps: [frontend-build]
+    cmds:
+      - |
+        CROSS_ROOT="$HOME/.cross/birdnetq"
+        TFLITE_LIB_DIR="$CROSS_ROOT/sysroot/usr/local/lib"
+        TFLITE_INCLUDE_DIR="$CROSS_ROOT/sysroot/usr/local/include"
+        mkdir -p {{.BINARY_DIR}}
+        if [ ! -f "$TFLITE_LIB_DIR/libtensorflowlite_c.so" ] && [ ! -f "$TFLITE_LIB_DIR/libtensorflowlite_c.so.2.17.1" ]; then
+          echo "Missing cross-root TFLite library in $TFLITE_LIB_DIR"
+          echo "Run ./scripts/sync-unoq-cross-root.sh before using task unoq."
+          exit 1
+        fi
+        if [ ! -f "$TFLITE_INCLUDE_DIR/tensorflow/lite/c/c_api.h" ]; then
+          echo "Missing cross-root TFLite headers in $TFLITE_INCLUDE_DIR"
+          echo "Run ./scripts/sync-unoq-cross-root.sh before using task unoq."
+          exit 1
+        fi
+        GOOS=linux GOARCH=arm64 \
+        CGO_ENABLED=1 \
+        CC="$CROSS_ROOT/zig-cc" \
+        CXX="$CROSS_ROOT/zig-cxx" \
+        CGO_CFLAGS="-I$TFLITE_INCLUDE_DIR -I$CROSS_ROOT/ncnn/include" \
+        CGO_LDFLAGS="-L$TFLITE_LIB_DIR -L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu -ltensorflowlite_c" \
+        go build -tags onnx,ncnn,cross -trimpath {{.BUILD_FLAGS}} \
+          -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq
+
+  unoq_tflite:
+    desc: Cross-compile TFLite-only binary for Arduino Uno Q (arm64 Linux)
+    deps: [frontend-build]
+    cmds:
+      - |
+        CROSS_ROOT="$HOME/.cross/birdnetq"
+        TFLITE_LIB_DIR="$CROSS_ROOT/sysroot/usr/local/lib"
+        TFLITE_INCLUDE_DIR="$CROSS_ROOT/sysroot/usr/local/include"
+        mkdir -p {{.BINARY_DIR}}
+        if [ ! -f "$TFLITE_LIB_DIR/libtensorflowlite_c.so" ] && [ ! -f "$TFLITE_LIB_DIR/libtensorflowlite_c.so.2.17.1" ]; then
+          echo "Missing cross-root TFLite library in $TFLITE_LIB_DIR"
+          echo "Run ./scripts/sync-unoq-cross-root.sh before using task unoq_tflite."
+          exit 1
+        fi
+        if [ ! -f "$TFLITE_INCLUDE_DIR/tensorflow/lite/c/c_api.h" ]; then
+          echo "Missing cross-root TFLite headers in $TFLITE_INCLUDE_DIR"
+          echo "Run ./scripts/sync-unoq-cross-root.sh before using task unoq_tflite."
+          exit 1
+        fi
+        GOOS=linux GOARCH=arm64 \
+        CGO_ENABLED=1 \
+        CC="$CROSS_ROOT/zig-cc" \
+        CXX="$CROSS_ROOT/zig-cxx" \
+        CGO_CFLAGS="-I$TFLITE_INCLUDE_DIR" \
+        CGO_LDFLAGS="-L$TFLITE_LIB_DIR -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu -ltensorflowlite_c" \
+        go build -tags cross -trimpath {{.BUILD_FLAGS}} \
+          -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq-tflite
+
+  unoq_onnx:
+    desc: Cross-compile ONNX-only binary for Arduino Uno Q (arm64 Linux)
+    deps: [frontend-build]
+    cmds:
+      - |
+        CROSS_ROOT="$HOME/.cross/birdnetq"
+        mkdir -p {{.BINARY_DIR}}
+        GOOS=linux GOARCH=arm64 \
+        CGO_ENABLED=1 \
+        CC="$CROSS_ROOT/zig-cc" \
+        CXX="$CROSS_ROOT/zig-cxx" \
+        go build -tags onnx,cross,notflite -trimpath {{.BUILD_FLAGS}} \
+          -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq-onnx
+
+  unoq_sync_cross_root:
+    desc: Sync Arduino Uno Q TFLite headers and libs into ~/.cross/birdnetq
+    cmds:
+      - ./scripts/sync-unoq-cross-root.sh
+
+  unoq_deploy:
+    desc: Deploy a built Uno Q binary with dated backups and build metadata
+    cmds:
+      - LOCAL_BINARY="{{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq" BUILD_FLAVOR="tflite-onnx-ncnn" ./scripts/deploy-unoq.sh
+
+  unoq_cleanup_transient_audio:
+    desc: Remove transient audio backlog from safe Uno Q spool directories
+    cmds:
+      - ./scripts/cleanup-unoq-transient-audio.sh
+
+  unoq_ncnn:
+    desc: Cross-compile NCNN binary for Arduino Uno Q (arm64 Linux) from macOS
+    deps: [frontend-build]
+    cmds:
+      - |
+        CROSS_ROOT="$HOME/.cross/birdnetq"
+        mkdir -p {{.BINARY_DIR}}
+        GOOS=linux GOARCH=arm64 \
+        CGO_ENABLED=1 \
+        CC="$CROSS_ROOT/zig-cc" \
+        CXX="$CROSS_ROOT/zig-cxx" \
+        CGO_CFLAGS="-I$CROSS_ROOT/ncnn/include" \
+        CGO_LDFLAGS="-L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu" \
+        go build -tags ncnn,cross,notflite -trimpath {{.BUILD_FLAGS}} \
+          -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq-ncnn
+
+  unoq_backend_smoke:
+    desc: Smoke-build Uno Q backend variants (tflite, onnx, ncnn, combined)
+    cmds:
+      - task: unoq_tflite
+      - task: unoq_onnx
+      - task: unoq_ncnn
+      - task: unoq
 
   windows_amd64:
     deps: [check-tools, check-tensorflow, download-avicommons-data, frontend-build]

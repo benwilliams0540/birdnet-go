@@ -78,6 +78,13 @@ func GetRestartReasons() []string {
 	return out
 }
 
+// ReplaceReasons atomically replaces the current restart-required reasons set.
+func ReplaceReasons(newReasons []string) {
+	reasonsMu.Lock()
+	defer reasonsMu.Unlock()
+	reasons = slices.Clone(newReasons)
+}
+
 // clearReasons resets the reasons list.
 func clearReasons() {
 	reasonsMu.Lock()

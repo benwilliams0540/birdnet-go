@@ -22,8 +22,11 @@ export function createEmptySettings(): SettingsFormData {
       name: '',
     },
     birdnet: {
+      version: '2.4',
+      backend: null,
       modelPath: '',
       labelPath: '',
+      onnxRuntimePath: '',
       sensitivity: 1.0,
       threshold: 0.3,
       overlap: 0.0,
@@ -32,6 +35,11 @@ export function createEmptySettings(): SettingsFormData {
       latitude: 0,
       longitude: 0,
       locationConfigured: false,
+      qnnBackend: '',
+      qnnLibDir: '',
+      qnnModelLibDir: '',
+      ncnnModelDir: '',
+      ncnnUseVulkan: false,
       rangeFilter: {
         threshold: 0.03,
         speciesCount: null,

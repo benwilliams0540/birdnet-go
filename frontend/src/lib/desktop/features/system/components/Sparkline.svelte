@@ -41,8 +41,11 @@
       .domain([0, data.length - 1])
       .range([0, viewWidth]);
 
+    // When all values are equal, add ±10% (min 0.5) padding so the
+    // flat line renders in the centre of the chart rather than at the bottom.
+    const flatRange = maxVal === minVal ? Math.max(Math.abs(minVal) * 0.1, 0.5) : 0;
     const yScale = scaleLinear()
-      .domain([minVal, maxVal === minVal ? minVal + 1 : maxVal])
+      .domain([minVal - flatRange, maxVal === minVal ? maxVal + flatRange : maxVal])
       .range([viewHeight - padding, padding]);
 
     const lineGenerator = line<number>()

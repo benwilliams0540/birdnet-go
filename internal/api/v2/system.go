@@ -401,6 +401,7 @@ func (c *Controller) initSystemRoutes() {
 	protectedGroup.POST("/database/backup", c.DownloadDatabaseBackup)
 	protectedGroup.GET("/network-interfaces", c.GetNetworkInterfaces)
 	protectedGroup.GET("/restart-status", c.GetRestartStatus)
+	protectedGroup.GET("/birdnet/capabilities", c.GetBirdNETCapabilities)
 
 	// Audio device routes (all protected)
 	audioGroup := protectedGroup.Group("/audio")
@@ -1303,10 +1304,15 @@ func (c *Controller) getThermalZones(ctx echo.Context, ip, path string) ([]strin
 	return zones, nil
 }
 
-// findValidThermalZone searches for a valid CPU thermal zone and updates response
+// findValidThermalZone searches for a valid CPU thermal zone and updates response.
+// First pass: match known CPU sensor type names (e.g. cpu-thermal, x86_pkg_temp).
+// Second pass (fallback): if no typed sensors matched, accept any zone with a valid
+// temperature reading — needed on devices like the Qualcomm Snapdragon where the kernel
+// does not populate the thermal zone type file.
 func (c *Controller) findValidThermalZone(zones []string, response *SystemTemperature, ip, path string) {
 	var lastAttemptDetails string
 
+	// First pass: match known CPU sensor types
 	for _, zonePath := range zones {
 		celsius, details, isValid, err := c.checkThermalZone(zonePath, cpuThermalTypes)
 		if err != nil {
@@ -1328,8 +1334,54 @@ func (c *Controller) findValidThermalZone(zones []string, response *SystemTemper
 		}
 	}
 
-	// No valid sensor found
+	// Second pass: accept any zone with a valid temperature (devices with empty type strings)
+	c.logDebugIfEnabled("No typed CPU sensor found, falling back to any valid thermal zone", logger.String("request_path", path))
+	for _, zonePath := range zones {
+		celsius, details, isValid, err := c.checkThermalZoneAny(zonePath)
+		if err != nil {
+			continue
+		}
+		if isValid {
+			response.Celsius = celsius
+			response.IsAvailable = true
+			response.SensorDetails = details + " (type unknown)"
+			response.Message = "CPU temperature retrieved from untyped thermal zone."
+			c.logInfoIfEnabled("CPU temperature retrieved from fallback zone", logger.Float64("temperature_celsius", response.Celsius), logger.String("sensor_details", response.SensorDetails), logger.String("request_path", path), logger.String("ip", ip))
+			return
+		}
+	}
+
+	// No valid sensor found in either pass
 	c.setTemperatureNotFoundResponse(response, lastAttemptDetails, ip, path)
+}
+
+// checkThermalZoneAny reads temperature from a thermal zone without filtering by type.
+// Used as a fallback when the kernel does not populate thermal zone type files.
+func (c *Controller) checkThermalZoneAny(zonePath string) (celsius float64, details string, isValid bool, err error) {
+	zoneName := filepath.Base(zonePath)
+	tempFilePath := filepath.Join(zonePath, "temp")
+
+	//nolint:gosec // G304: tempFilePath is from filepath.Glob on /sys/class/thermal/, not user input
+	tempData, err := os.ReadFile(tempFilePath)
+	if err != nil {
+		return 0, "", false, nil //nolint:nilerr // missing temp file is not a fatal error
+	}
+
+	tempStr := strings.TrimSpace(string(tempData))
+	tempMilliCelsius, err := strconv.Atoi(tempStr)
+	if err != nil {
+		return 0, "", false, nil //nolint:nilerr // unparseable value — skip zone
+	}
+
+	celsius = float64(tempMilliCelsius) / float64(MillisecondsPerSecond)
+
+	// Only accept temperatures in a reasonable CPU range (0–110 °C)
+	if celsius < 0.0 || celsius > 110.0 {
+		return 0, "", false, nil
+	}
+
+	details = fmt.Sprintf("Source: %s", zoneName)
+	return celsius, details, true, nil
 }
 
 // setTemperatureNotFoundResponse sets appropriate message when no valid sensor found

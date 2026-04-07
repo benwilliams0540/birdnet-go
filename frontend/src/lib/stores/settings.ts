@@ -61,10 +61,11 @@ export interface MainSettings {
 }
 
 export interface BirdNetSettings {
-  version: string;
+  version?: string;
+  backend?: string | null;
   modelPath: string | null;
   labelPath: string | null;
-  onnxRuntimePath: string | null;
+  onnxRuntimePath?: string | null;
   sensitivity: number; // 0.0-1.5
   threshold: number; // 0.0-1.0
   overlap: number; // 0.0-2.9
@@ -74,15 +75,14 @@ export interface BirdNetSettings {
   longitude: number;
   locationConfigured: boolean; // true when location has been explicitly configured
   rangeFilter: RangeFilterSettings;
-  // QNN hardware acceleration (Qualcomm Neural Network SDK)
-  // Requires birdnet-go built with -tags qnn and QAIRT SDK libraries deployed.
-  qnnBackend: string | null; // "gpu", "htp", or null/""  (disabled)
-  qnnLibDir: string | null; // directory containing libQnnGpu.so / libQnnSystem.so
-  qnnModelLibDir: string | null; // directory containing libmodel_net.so or context binary
+  // QNN hardware acceleration (Qualcomm Neural Network SDK — currently unsupported on this device)
+  qnnBackend?: string | null;
+  qnnLibDir?: string | null;
+  qnnModelLibDir?: string | null;
   // NCNN hardware acceleration (Vulkan GPU via NCNN)
   // Requires birdnet-go built with -tags ncnn and NCNN CNN sub-model files deployed.
-  ncnnModelDir: string | null; // directory containing birdnet_cnn.param and birdnet_cnn.bin
-  ncnnUseVulkan: boolean; // true to enable Vulkan GPU acceleration
+  ncnnModelDir?: string | null; // directory containing birdnet_cnn.param and birdnet_cnn.bin
+  ncnnUseVulkan?: boolean; // true to enable Vulkan GPU acceleration
 }
 
 export interface DynamicThresholdSettings {
@@ -823,6 +823,8 @@ function createEmptySettings(): SettingsFormData {
       name: '',
     },
     birdnet: {
+      version: '2.4',
+      backend: null,
       modelPath: '',
       labelPath: '',
       onnxRuntimePath: '',
@@ -1267,6 +1269,9 @@ export const settingsActions = {
       }
       if (coercedFormData.birdnet.onnxRuntimePath?.trim() === '') {
         coercedFormData.birdnet.onnxRuntimePath = null;
+      }
+      if (coercedFormData.birdnet.backend?.trim() === 'auto') {
+        coercedFormData.birdnet.backend = null;
       }
       if (coercedFormData.birdnet.qnnBackend?.trim() === '') {
         coercedFormData.birdnet.qnnBackend = null;

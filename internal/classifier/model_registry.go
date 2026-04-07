@@ -57,7 +57,7 @@ var ModelRegistry = map[string]ModelInfo{
 			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
 			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
 		DefaultLocale: "en-uk",
-		NumSpecies:    6523,
+		NumSpecies:    6522,
 	},
 	"BirdNET_V2.4_INT8": {
 		ID:               "BirdNET_V2.4_INT8",
@@ -131,6 +131,34 @@ var ModelRegistry = map[string]ModelInfo{
 		DefaultLocale: "en-uk",
 		NumSpecies:    6522, // CNN subgraph output: verified via QNN tensor introspection
 	},
+	"BirdNET_V2.4_NCNN_PNNX": {
+		ID:               "BirdNET_V2.4_NCNN_PNNX",
+		Name:             "BirdNET V2.4 NCNN (Full Pipeline GPU)",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "Full model pipeline (STFT+Mel+CNN) running on NCNN GPU (PNNX)",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_ncnn_pnnx"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6522,
+	},
+	"BirdNET_V2.4_NCNN_Standard": {
+		ID:               "BirdNET_V2.4_NCNN_Standard",
+		Name:             "BirdNET V2.4 NCNN (Standard CNN GPU)",
+		DetectionName:    "BirdNET",
+		DetectionVersion: "2.4",
+		Description:      "CNN-only model running on NCNN GPU with Go-native preprocessing",
+		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
+		ConfigAliases:    []string{"birdnet_ncnn_standard"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+		NumSpecies:    6522,
+	},
 	"Perch_V2": {
 		ID:               "Perch_V2",
 		Name:             "Google Perch V2",
@@ -151,6 +179,8 @@ var birdnetVersionToRegistryID = map[string]string{
 	"2.4-cnn-fp32": "BirdNET_V2.4_CNN_FP32",
 	"2.4-cnn-fp16": "BirdNET_V2.4_CNN_FP16",
 	"2.4-cnn-int8": "BirdNET_V2.4_CNN_INT8",
+	"2.4-ncnn-pnnx": "BirdNET_V2.4_NCNN_PNNX",
+	"2.4-ncnn-standard": "BirdNET_V2.4_NCNN_Standard",
 	"3.0":          "BirdNET_V3.0",
 }
 

@@ -1,38 +1,25 @@
-//go:build ncnn
-
 package ncnn
-
-// melspec.go — audio-to-mel-spectrogram preprocessing for the NCNN CNN model.
-//
-// Identical computation to internal/inference/qnn/melspec.go.
-// The mel filterbank matrices are embedded from data/ (same files used by QNN).
-//
-// # Output format
-//
-// ComputeMelSpectrograms returns a flat []float32 of length 2×511×96 = 98112
-// in planar channel-first layout:
-//
-//	[0 … 49055]    SPEC1 (fft=2048, hop=278) — channel 0
-//	[49056 … 98111] SPEC2 (fft=1024, hop=280) — channel 1
-//
-// Each channel is stored in row-major [H=511, W=96] order, matching what
-// NCNN expects for ncnn_mat_create_3d(W=96, H=511, C=2) with planar data.
 
 import (
 	_ "embed"
 	"math"
 )
 
+// The NCNN split model is derived from source_models/BirdNET_V2.4.onnx at the
+// tensor boundary immediately after the spectrogram affine normalization and
+// transpose. It therefore expects a single NCHW tensor shaped [1, 2, 96, 511].
+
 //go:embed data/mel_fb_spec1.bin
-var melFBSpec1Raw []byte // [1025 × 96] float32 little-endian
+var melFBSpec1Raw []byte
 
 //go:embed data/mel_fb_spec2.bin
-var melFBSpec2Raw []byte // [513 × 96] float32 little-endian
+var melFBSpec2Raw []byte
 
 const (
-	melAudioLen  = 144_000
-	melNumFrames = 511
-	melNumBins   = 96
+	splitAudioLen = 144_000
+	splitFrames   = 511
+	splitBins     = 96
+	splitChannels = 2
 
 	spec1FFT  = 2048
 	spec1Hop  = 278
@@ -51,12 +38,17 @@ const (
 )
 
 var (
-	melFB1   []float32
-	melFB2   []float32
-	hann1    []float32
-	hann2    []float32
+	melFB1 []float32
+	melFB2 []float32
+	hann1  []float32
+	hann2  []float32
+
 	twiddle1 []complex128
 	twiddle2 []complex128
+
+	// Channel-wise affine normalization constants taken from the source ONNX.
+	channelScale = [splitChannels]float32{0.19752595, 3.152703}
+	channelBias  = [splitChannels]float32{-0.65386057, -0.34679556}
 )
 
 func init() {
@@ -95,21 +87,32 @@ func computeTwiddle(n int) []complex128 {
 	return t
 }
 
-// ComputeMelSpectrograms computes the two-channel mel spectrogram from raw audio.
-//
-// samples must contain exactly 144 000 float32 values (48 kHz × 3 s).
-//
-// Returns a flat []float32 of length 98 112 in planar format:
-//   - [0:49056]    SPEC1 → NCNN channel 0
-//   - [49056:98112] SPEC2 → NCNN channel 1
-func ComputeMelSpectrograms(samples []float32) []float32 {
+// ComputeSplitCNNInput reproduces the source ONNX preprocessing and returns the
+// exact channel-first tensor expected by the split NCNN CNN model:
+// [channel=2][mel=96][frame=511].
+func ComputeSplitCNNInput(samples []float32) []float32 {
 	norm := normalizeAudio(samples)
 
-	const halfLen = melNumFrames * melNumBins
-	out := make([]float32, 2*halfLen)
+	const channelSize = splitFrames * splitBins
 
-	stftMelSpec(norm, spec1FFT, spec1Hop, spec1Bins, hann1, melFB1, spec1PowExp, twiddle1, out[:halfLen])
-	stftMelSpec(norm, spec2FFT, spec2Hop, spec2Bins, hann2, melFB2, spec2PowExp, twiddle2, out[halfLen:])
+	spec1 := make([]float32, channelSize)
+	spec2 := make([]float32, channelSize)
+
+	stftMelSpec(norm, spec1FFT, spec1Hop, spec1Bins, hann1, melFB1, spec1PowExp, twiddle1, spec1)
+	stftMelSpec(norm, spec2FFT, spec2Hop, spec2Bins, hann2, melFB2, spec2PowExp, twiddle2, spec2)
+
+	out := make([]float32, splitChannels*channelSize)
+	for frame := 0; frame < splitFrames; frame++ {
+		frameBase := frame * splitBins
+		for bin := 0; bin < splitBins; bin++ {
+			// Nodes 39 and 40 in the source ONNX reverse the last mel axis before
+			// the channel concat, so we must mirror that here.
+			srcIndex := frameBase + (splitBins - 1 - bin)
+			dstIndex := bin*splitFrames + frame
+			out[dstIndex] = spec1[srcIndex]*channelScale[0] + channelBias[0]
+			out[channelSize+dstIndex] = spec2[srcIndex]*channelScale[1] + channelBias[1]
+		}
+	}
 
 	return out
 }
@@ -149,15 +152,15 @@ func stftMelSpec(
 	dst []float32,
 ) {
 	buf := make([]complex128, fftSize)
-	reSq := make([]float32, freqBins)
-	mel := make([]float32, melNumBins)
+	realBins := make([]float32, freqBins)
+	mel := make([]float32, splitBins)
 
 	sigLen := len(signal)
 
-	for frame := range melNumFrames {
+	for frame := 0; frame < splitFrames; frame++ {
 		start := frame * hop
 
-		for i := range fftSize {
+		for i := 0; i < fftSize; i++ {
 			si := start + i
 			if si < sigLen {
 				buf[i] = complex(float64(signal[si])*float64(hann[i]), 0)
@@ -168,28 +171,30 @@ func stftMelSpec(
 
 		fftInPlace(buf, twiddle)
 
-		for k := range freqBins {
-			re := float32(real(buf[k]))
-			reSq[k] = re * re
+		for k := 0; k < freqBins; k++ {
+			realBins[k] = float32(real(buf[k]))
 		}
 
 		for j := range mel {
 			mel[j] = 0
 		}
-		for k := range freqBins {
-			r := reSq[k]
-			if r == 0 {
+		for k := 0; k < freqBins; k++ {
+			v := realBins[k]
+			if v == 0 {
 				continue
 			}
-			base := k * melNumBins
-			for j := range melNumBins {
-				mel[j] += r * fb[base+j]
+			base := k * splitBins
+			for j := 0; j < splitBins; j++ {
+				mel[j] += v * fb[base+j]
 			}
 		}
 
-		base := frame * melNumBins
+		base := frame * splitBins
 		for j, m := range mel {
-			dst[base+j] = float32(math.Pow(float64(m), powExp))
+			// Match the source ONNX graph: mel projection first, then square,
+			// then apply the learned power-compression exponent.
+			power := m * m
+			dst[base+j] = float32(math.Pow(float64(power), powExp))
 		}
 	}
 }
@@ -213,7 +218,7 @@ func fftInPlace(x []complex128, twiddle []complex128) {
 		half := length / 2
 		step := n / length
 		for i := 0; i < n; i += length {
-			for k := range half {
+			for k := 0; k < half; k++ {
 				u := x[i+k]
 				v := x[i+k+half] * twiddle[k*step]
 				x[i+k] = u + v
