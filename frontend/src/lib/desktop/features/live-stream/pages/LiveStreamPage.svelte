@@ -154,6 +154,31 @@
     return ranges.join(', ');
   }
 
+  async function startElementPlayback(
+    mediaElement: HTMLAudioElement,
+    options?: { bootstrapMuted?: boolean }
+  ): Promise<void> {
+    const bootstrapMuted = options?.bootstrapMuted ?? false;
+    const previousMuted = mediaElement.muted;
+
+    if (bootstrapMuted) {
+      mediaElement.muted = true;
+    }
+
+    try {
+      await mediaElement.play();
+    } finally {
+      // Keep the element itself unmuted once playback has been attempted so the
+      // analyser continues to see the real signal. Speaker muting is handled by
+      // the Web Audio output gain node instead.
+      mediaElement.muted = false;
+
+      if (!bootstrapMuted && mediaElement.paused) {
+        mediaElement.muted = previousMuted;
+      }
+    }
+  }
+
   async function startStream() {
     if (!selectedSourceId) return;
 
@@ -194,7 +219,9 @@
       audioElement = new globalThis.Audio();
       audioElement.crossOrigin = 'anonymous';
       audioElement.setAttribute('playsinline', 'true');
-      audioElement.muted = !audioOutput;
+      // Use muted autoplay only as a temporary bootstrap; the analyser should
+      // always receive the live signal regardless of the speaker monitor state.
+      audioElement.muted = true;
 
       // Audio element debug listeners for buffer underrun diagnosis
       let hasStalled = false;
@@ -311,13 +338,15 @@
             fragmentsBuffered >= BUFFERING_STRATEGY.MIN_FRAGMENTS_BEFORE_PLAY
           ) {
             playbackAttempted = true;
-            audioElement?.play().catch((err: Error) => {
-              if (err.name === 'NotAllowedError') {
-                logger.warn('Autoplay blocked by browser');
-              } else {
-                logger.warn('Playback start error', err);
-              }
-            });
+            if (audioElement) {
+              startElementPlayback(audioElement, { bootstrapMuted: true }).catch((err: Error) => {
+                if (err.name === 'NotAllowedError') {
+                  logger.warn('Autoplay blocked by browser');
+                } else {
+                  logger.warn('Playback start error', err);
+                }
+              });
+            }
           }
         });
 
@@ -388,19 +417,19 @@
       } else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS (Safari)
         audioElement.src = hlsUrl;
+        await spectro.connect(audioElement);
+        if (signal.aborted) {
+          spectro.disconnect();
+          return;
+        }
         try {
-          await audioElement.play();
+          await startElementPlayback(audioElement, { bootstrapMuted: true });
         } catch (e) {
           if ((e as Error).name === 'NotAllowedError') {
             logger.warn('Autoplay blocked by browser');
           }
         }
         if (signal.aborted || !audioElement) return;
-        await spectro.connect(audioElement);
-        if (signal.aborted) {
-          spectro.disconnect();
-          return;
-        }
         startHeartbeat(activeStreamToken!);
         if (activeSourceId) {
           connectDetectionStream(activeSourceId);
@@ -558,16 +587,12 @@
     const enabled = !audioOutput;
     audioOutput = enabled;
     if (audioElement) {
-      audioElement.muted = !enabled;
-      if (!audioElement.paused) {
-        spectro.setAudioOutput(enabled);
-        return;
-      }
-
-      audioElement.play().catch(() => {
+      if (audioElement.paused) {
+        audioElement.play().catch(() => {
         // If playback is still blocked, the spectrogram can still recover once
         // a later user gesture resumes the AudioContext.
-      });
+        });
+      }
     }
     spectro.setAudioOutput(enabled);
   }

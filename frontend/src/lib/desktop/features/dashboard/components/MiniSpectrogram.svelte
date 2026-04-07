@@ -177,6 +177,33 @@
     });
   }
 
+  async function startElementPlayback(
+    mediaElement: HTMLAudioElement,
+    options?: { bootstrapMuted?: boolean }
+  ): Promise<void> {
+    const bootstrapMuted = options?.bootstrapMuted ?? false;
+    const previousMuted = mediaElement.muted;
+
+    if (bootstrapMuted) {
+      mediaElement.muted = true;
+    }
+
+    try {
+      await mediaElement.play();
+    } finally {
+      // Use the Web Audio graph, not the HTMLMediaElement mute flag, as the
+      // long-lived source of truth for silent monitoring. Keeping the element
+      // muted can cause Safari to feed silence into the analyser.
+      mediaElement.muted = false;
+
+      // Preserve the previous mute state if playback never started and we
+      // weren't intentionally bootstrapping muted autoplay.
+      if (!bootstrapMuted && mediaElement.paused) {
+        mediaElement.muted = previousMuted;
+      }
+    }
+  }
+
   async function start() {
     if (isActive || isConnecting) return;
     isConnecting = true;
@@ -220,10 +247,8 @@
       audioElement = new globalThis.Audio();
       audioElement.crossOrigin = 'anonymous';
       audioElement.setAttribute('playsinline', 'true');
-      // Autoplay policies are much more permissive for muted media elements.
-      // The dashboard spectrogram defaults to silent monitoring, so mirror that
-      // at the HTMLMediaElement layer instead of relying only on the downstream
-      // Web Audio output gain node.
+      // Use muted playback only as an autoplay bootstrap. Once playback starts,
+      // the Web Audio output gain node controls whether speakers are silent.
       audioElement.muted = true;
 
       if (Hls.isSupported()) {
@@ -233,28 +258,28 @@
 
         hls.on(Hls.Events.MANIFEST_PARSED, async () => {
           if (signal.aborted) return;
-          try {
-            await audioElement?.play();
-          } catch {
-            /* autoplay blocked — spectrogram still renders */
-          }
-          if (signal.aborted) return;
-
-          // Mark as active BEFORE spectro.connect() — the connect may hang
-          // if AudioContext.resume() blocks on autoplay policy (no user gesture
-          // on page reload). The spectrogram canvas will show black until the
-          // context resumes, which is better than an infinite spinner.
-          startHeartbeat(activeStreamToken!);
-          isActive = true;
-          isConnecting = false;
-          persistToggleState(true);
-
           if (audioElement) {
             await spectro.connect(audioElement);
           }
           if (signal.aborted) {
             spectro.disconnect();
+            return;
           }
+
+          if (audioElement) {
+            try {
+              await startElementPlayback(audioElement, { bootstrapMuted: true });
+            } catch {
+              /* autoplay blocked — spectrogram can recover on user gesture */
+            }
+          }
+
+          if (signal.aborted) return;
+
+          startHeartbeat(activeStreamToken!);
+          isActive = true;
+          isConnecting = false;
+          persistToggleState(true);
         });
 
         hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -270,23 +295,24 @@
       } else if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS (Safari / iOS)
         audioElement.src = hlsUrl;
+        await spectro.connect(audioElement);
+        if (signal.aborted) {
+          spectro.disconnect();
+          return;
+        }
+
         try {
-          await audioElement.play();
+          await startElementPlayback(audioElement, { bootstrapMuted: true });
         } catch {
           /* autoplay blocked */
         }
+
         if (signal.aborted || !audioElement) return;
 
-        // Mark active before spectro.connect() — see MANIFEST_PARSED comment above
         startHeartbeat(activeStreamToken!);
         isActive = true;
         isConnecting = false;
         persistToggleState(true);
-
-        await spectro.connect(audioElement);
-        if (signal.aborted) {
-          spectro.disconnect();
-        }
       } else {
         // Browser supports neither HLS.js nor native HLS — tear down
         logger.warn('MiniSpectrogram: browser does not support HLS');
@@ -386,8 +412,7 @@
     // eslint-disable-next-line security/detect-object-injection -- gainPresetIndex is a numeric index bounded by modulo
     const preset = GAIN_PRESETS[gainPresetIndex];
     if (audioElement) {
-      audioElement.muted = !preset.audio;
-      if (preset.audio && audioElement.paused) {
+      if (audioElement.paused) {
         audioElement.play().catch(() => {
           // Ignore autoplay errors here; the spectrogram can still resume on a
           // later user gesture via the deferred AudioContext resume handler.
