@@ -1,3 +1,4 @@
+.DS_Store
 bin/birdnet-go
 bin/birdnet-go.exe
 bin/
@@ -41,6 +42,7 @@ source_models/*.txt
 source_models/*.cnn_only.onnx
 source_models/*.pnnxsim.onnx
 !source_models/*.py
+!source_models/README.md
 Unraid/SUBMISSION.md
 frontend/node_modules
 frontend/dist/

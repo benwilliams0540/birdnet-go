@@ -1,8 +1,16 @@
 # Arduino Uno Q Deployment
 
 BirdNET-Go supports the Arduino Uno Q (Qualcomm QRB2210 / QCM2290) as a native
-binary deployment. The ONNX backend with Go-native FFT preprocessing achieves
-~150ms inference per 3-second audio chunk on this hardware.
+Linux `arm64` deployment.
+
+The safest live configuration on this hardware is still:
+
+- `backend: tflite`
+- `version: "2.4"`
+
+ONNX remains useful for comparison and debugging, and a validated split-model
+NCNN path exists for experiments. Full-graph hardware acceleration is still
+experimental on this board, and QNN is not a practical route for this fork.
 
 ## Hardware Specifications
 
@@ -14,18 +22,19 @@ binary deployment. The ONNX backend with Go-native FFT preprocessing achieves
 | RAM | ~4 GB |
 | CPU flags | ARMv8 SIMD — no `asimddp`, no `i8mm`, no SVE |
 
-## Why ONNX Backend?
+## Current Backend Guidance
 
-The standard TFLite backend uses XNNPACK for CPU acceleration, which relies
-heavily on the ARM dot-product extension (`asimddp`). The Uno Q's Kryo-V2 cores
-lack this extension, making XNNPACK fall back to slower scalar paths (~292ms).
+Use TFLite as the production baseline on the Uno Q.
 
-The ONNX backend splits inference into two stages:
-1. **Go-native FFT preprocessing** — computes mel spectrograms using an O(N log N)
-   RFFT instead of the O(N^2) DFT embedded in the full TFLite model
-2. **CNN-only ONNX model** — runs just the convolutional neural network portion
+- `tflite`: best default for a stable portable deployment
+- `onnx`: useful for validation and backend comparison
+- `ncnn`: available only when a validated split-model directory is present
 
-This achieves ~150ms per chunk, a ~2x speedup over TFLite on this hardware.
+For the current Uno Q-specific notes, see:
+
+- [`docs/unoq/README.md`](../../docs/unoq/README.md)
+- [`docs/unoq/acceleration-summary.md`](../../docs/unoq/acceleration-summary.md)
+- [`docs/unoq/ncnn-conversion.md`](../../docs/unoq/ncnn-conversion.md)
 
 ## Quick Install
 
@@ -56,7 +65,12 @@ Copy the binary to the Uno Q:
 scp birdnet-go arduino@uno-q:/opt/birdnet-go/birdnet-go
 ```
 
-### 2. Install ONNX Runtime
+### 2. Install runtime dependencies
+
+The Uno Q build can use multiple inference backends. ONNX Runtime stays
+runtime-loaded, while TFLite support is built into the binary.
+
+If you want ONNX available:
 
 ```bash
 ORT_VERSION=1.17.1
@@ -70,17 +84,11 @@ sudo ldconfig
 
 ### 3. Install model files
 
-Copy from a BirdNET-Q installation or download:
-```bash
-sudo mkdir -p /opt/birdnet-go/model
-sudo cp birdnet_cnn.onnx /opt/birdnet-go/model/
-sudo cp birdnet_preproc.npz /opt/birdnet-go/model/
-```
+For TFLite-only deployment, the embedded model is enough.
 
-The range filter still uses TFLite and needs:
-```bash
-sudo cp BirdNET_GLOBAL_6K_V2.4_MData_Model_V2_FP16.tflite /opt/birdnet-go/model/
-```
+If you want ONNX or NCNN available, place the external model assets under a
+dedicated model directory such as `/opt/birdnet-go/model/` and reference them
+from `config.yaml`.
 
 ### 4. Configure
 
@@ -88,7 +96,8 @@ Create `/etc/birdnet-go/config.yaml`:
 
 ```yaml
 birdnet:
-  backend: onnx
+  backend: tflite
+  version: "2.4"
   threads: 4
   usexnnpack: false
   sensitivity: 1.0
@@ -161,36 +170,25 @@ journalctl -fu birdnet-go
 
 Open `http://<uno-q-ip>:8080` in a browser.
 
-## Performance Comparison
-
-| Backend | Inference Time | Notes |
-|---------|---------------|-------|
-| TFLite (XNNPACK) | ~292 ms | Slower due to missing `asimddp` |
-| TFLite (no XNNPACK) | ~750 ms | Single-threaded fallback |
-| **ONNX (Go FFT + CNN)** | **~150 ms** | Recommended for Uno Q |
-
-## Benchmarking
-
-Run the built-in benchmark on the device:
-
-```bash
-/opt/birdnet-go/birdnet-go benchmark --config /etc/birdnet-go/config.yaml
-```
-
 ## Known Limitations
 
-- **No GPU acceleration**: QNN delegate is blocked by dynamic tensor shapes
-  from RFFT in the TFLite model. The ONNX CNN sub-model has static shapes,
-  so QNN via ONNX Runtime execution provider may work in a future release.
-- **No Hexagon DSP**: The device tree lacks the fastrpc platform device node.
-- **Range filter stays on TFLite**: The range filter model is lightweight and
-  does not have the RFFT performance issue.
+- **QNN is not supported for this target**: the Uno Q's Hexagon DSP is not a
+  practical BirdNET-Go acceleration route in this fork.
+- **GPU acceleration remains experimental**: split-model NCNN can be validated,
+  but it is not the default production recommendation.
+- **Spectrogram generation is CPU-side**: installing SoX on the Uno Q improves
+  dashboard spectrogram generation substantially compared with FFmpeg fallback.
 
 ## Troubleshooting
 
 **Service fails to start:**
 ```bash
 journalctl -xeu birdnet-go
+```
+
+**Slow spectrogram generation:**
+```bash
+sudo apt-get install -y sox libsox-fmt-all
 ```
 
 **ONNX Runtime not found:**

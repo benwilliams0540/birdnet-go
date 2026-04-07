@@ -40,8 +40,8 @@ DFT not supported yet!
 Unsupported slice step !
 ```
 
-This means the full BirdNET V2.4 ONNX graph is not directly convertible with the
-current `onnx2ncnn` tool on the device.
+This means the full BirdNET V2.4 ONNX graph is not directly convertible with
+the current `onnx2ncnn` tool on the device.
 
 ### Split-model route from the same source ONNX
 
@@ -113,14 +113,6 @@ loadable NCNN model, but the logits were numerically wrong:
 
 This is why the repo now prefers `pnnx` for the final NCNN artifact generation.
 
-### Earlier CNN-only experiment
-
-The earlier CNN-only experiment from the embedded asset still fails:
-
-```text
-Unsupported transpose type !
-```
-
 ## Conversion Policy
 
 - Do not commit or deploy NCNN model files generated from a failed
@@ -129,6 +121,6 @@ Unsupported transpose type !
 - Only mark an NCNN model directory as selectable after parity checks by
   creating `birdnet-go.ncnn-validated` beside the `.param` and `.bin` files.
 - Prefer the split-model path from `source_models/BirdNET_V2.4.onnx` plus
-  `pnnx` over the older embedded CNN experiment, because it preserves
-  provenance from the source-of-truth model while avoiding the unsupported
-  DFT/Gather front end and the incorrect `onnx2ncnn` conversion.
+  `pnnx` over older embedded CNN experiments, because it preserves provenance
+  from the source-of-truth model while avoiding the unsupported DFT/Gather
+  front end and the incorrect `onnx2ncnn` conversion.
