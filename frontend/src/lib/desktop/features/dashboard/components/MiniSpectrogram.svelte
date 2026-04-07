@@ -45,6 +45,8 @@
   const FFT_SIZE = 1024;
   const HEARTBEAT_INTERVAL = 20000;
   const SOURCE_DISCOVERY_TIMEOUT = 5000;
+  const ZERO_SIGNAL_CHECK_INTERVAL_MS = 500;
+  const ZERO_SIGNAL_GRACE_MS = 3000;
   /** How often (ms) to poll for label promotion and pruning */
   const LABEL_POLL_INTERVAL_MS = 200;
   /** Maximum label age (ms) before pruning from overlay */
@@ -68,6 +70,7 @@
   let isConnecting = $state(false);
   let gainPresetIndex = $state(0);
   let showDetectionLabels = $state(true);
+  let liveSignalUnavailable = $state(false);
 
   const gainLabel = $derived.by(() => {
     // eslint-disable-next-line security/detect-object-injection -- gainPresetIndex is a numeric index bounded by GAIN_PRESETS.length
@@ -86,6 +89,7 @@
   let heartbeatTimer: ReturnType<typeof globalThis.setInterval> | null = null;
   let abortController: AbortController | null = null;
   let activeSourceId = $state<string | null>(null);
+  let zeroSignalSinceMs = 0;
 
   // Detection overlay state
   let overlayLabels = $state<OverlayLabel[]>([]);
@@ -97,6 +101,26 @@
 
   // Initialize composable during component init (must be at top level for $effect cleanup)
   const spectro = useSpectrogramAnalyser({ fftSize: FFT_SIZE, audioOutput: false });
+
+  function isWebKitBrowser(): boolean {
+    const ua = globalThis.navigator?.userAgent ?? '';
+    const vendor = globalThis.navigator?.vendor ?? '';
+    return (
+      /Apple/i.test(vendor) && /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS/i.test(ua)
+    );
+  }
+
+  const liveSignalUnavailableMessage = $derived.by(() => {
+    if (!liveSignalUnavailable) {
+      return '';
+    }
+
+    if (isWebKitBrowser()) {
+      return 'Live spectrogram is unavailable in Safari/WebKit for HLS audio streams. Audio and detections still work, but the graph currently requires Chrome, Brave, or Firefox.';
+    }
+
+    return 'Live spectrogram data is not reaching the browser audio analyser even though the stream is connected.';
+  });
 
   function shouldAutoStart(): boolean {
     if (appState.liveSpectrogram) return true;
@@ -395,6 +419,8 @@
     prevSnapshot = [];
     lastSeenSpecies.clear();
     slotCounter = 0;
+    zeroSignalSinceMs = 0;
+    liveSignalUnavailable = false;
 
     isActive = false;
     isConnecting = false;
@@ -491,6 +517,51 @@
     return () => globalThis.clearInterval(interval);
   });
 
+  $effect(() => {
+    if (!audioElement || !spectro.analyser || !spectro.isActive || !isActive) {
+      zeroSignalSinceMs = 0;
+      liveSignalUnavailable = false;
+      return;
+    }
+
+    const probe = new Uint8Array(spectro.analyser.frequencyBinCount);
+    const interval = globalThis.setInterval(() => {
+      if (!audioElement || !spectro.analyser) return;
+
+      const mediaAdvancing =
+        !audioElement.paused && audioElement.currentTime > 0.5 && audioElement.readyState >= 2;
+      if (!mediaAdvancing) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      spectro.analyser.getByteFrequencyData(probe);
+      let peak = 0;
+      for (let i = 0; i < probe.length; i++) {
+        // eslint-disable-next-line security/detect-object-injection -- loop index is bounded by typed array length
+        if (probe[i] > peak) peak = probe[i];
+      }
+
+      if (peak > 0) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      if (zeroSignalSinceMs === 0) {
+        zeroSignalSinceMs = Date.now();
+        return;
+      }
+
+      if (Date.now() - zeroSignalSinceMs >= ZERO_SIGNAL_GRACE_MS) {
+        liveSignalUnavailable = true;
+      }
+    }, ZERO_SIGNAL_CHECK_INTERVAL_MS);
+
+    return () => globalThis.clearInterval(interval);
+  });
+
   // Use onMount (NOT $effect) for auto-start. This is fire-once initialization:
   // - $effect caused effect_update_depth_exceeded because start() reads $state
   //   variables (isActive, isConnecting) which become tracked dependencies,
@@ -568,18 +639,29 @@
     </div>
 
     {#if (isActive || isConnecting) && spectro.isActive}
-      <SpectrogramCanvas
-        analyser={spectro.analyser}
-        frequencyData={spectro.frequencyData}
-        sampleRate={spectro.sampleRate}
-        fftSize={FFT_SIZE}
-        {frequencyRange}
-        {colorMap}
-        isActive={spectro.isActive}
-        overlayLabels={showDetectionLabels ? overlayLabels : []}
-        overlayFontSize={9}
-        className="h-28 w-full"
-      />
+      <div class="relative h-28 w-full">
+        <SpectrogramCanvas
+          analyser={spectro.analyser}
+          frequencyData={spectro.frequencyData}
+          sampleRate={spectro.sampleRate}
+          fftSize={FFT_SIZE}
+          {frequencyRange}
+          {colorMap}
+          isActive={spectro.isActive}
+          overlayLabels={showDetectionLabels ? overlayLabels : []}
+          overlayFontSize={9}
+          className="h-28 w-full"
+        />
+        {#if liveSignalUnavailable}
+          <div
+            class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/75 px-4 text-center"
+          >
+            <p class="max-w-md text-xs leading-5 text-[var(--color-base-content)]/80">
+              {liveSignalUnavailableMessage}
+            </p>
+          </div>
+        {/if}
+      </div>
     {:else if isActive || isConnecting}
       <div class="flex h-28 items-center justify-center bg-black">
         <div

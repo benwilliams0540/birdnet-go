@@ -41,6 +41,8 @@
   const logger = loggers.audio;
   const FFT_SIZE = 1024;
   const HEARTBEAT_INTERVAL = 20000;
+  const ZERO_SIGNAL_CHECK_INTERVAL_MS = 500;
+  const ZERO_SIGNAL_GRACE_MS = 3000;
   /** How often (ms) to poll for label promotion and pruning */
   const LABEL_POLL_INTERVAL_MS = 200;
   /** Maximum label age (ms) before pruning from overlay */
@@ -66,6 +68,7 @@
   let connectionError = $state<string | null>(null);
   let isConnecting = $state(false);
   let isStreaming = $state(false);
+  let liveSignalUnavailable = $state(false);
 
   // Spectrogram config
   let frequencyRange = $state<[number, number]>([0, 15000]);
@@ -93,9 +96,30 @@
   let abortController: AbortController | null = null;
   let activeStreamToken: string | null = null;
   let activeSourceId: string | null = null;
+  let zeroSignalSinceMs = 0;
 
   // Initialize composable during component init (registers cleanup $effect)
   const spectro = useSpectrogramAnalyser({ fftSize: FFT_SIZE, audioOutput: true });
+
+  function isWebKitBrowser(): boolean {
+    const ua = globalThis.navigator?.userAgent ?? '';
+    const vendor = globalThis.navigator?.vendor ?? '';
+    return (
+      /Apple/i.test(vendor) && /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS/i.test(ua)
+    );
+  }
+
+  const liveSignalUnavailableMessage = $derived.by(() => {
+    if (!liveSignalUnavailable) {
+      return '';
+    }
+
+    if (isWebKitBrowser()) {
+      return 'Live spectrogram is unavailable in Safari/WebKit for HLS audio streams. Audio and detections still work, but the graph currently requires Chrome, Brave, or Firefox.';
+    }
+
+    return 'Live spectrogram data is not reaching the browser audio analyser even though the stream is connected.';
+  });
 
   // Source discovery via SSE
   function connectSSE() {
@@ -566,6 +590,8 @@
 
     activeStreamToken = null;
     activeSourceId = null;
+    zeroSignalSinceMs = 0;
+    liveSignalUnavailable = false;
     isConnecting = false;
     isStreaming = false;
   }
@@ -783,6 +809,53 @@
 
     return () => globalThis.clearInterval(interval);
   });
+
+  // Detect WebKit/HLS sessions where the audio plays but the analyser keeps
+  // returning all-zero FFT bins, which leaves the spectrogram black.
+  $effect(() => {
+    if (!audioElement || !spectro.analyser || !spectro.isActive || !isStreaming) {
+      zeroSignalSinceMs = 0;
+      liveSignalUnavailable = false;
+      return;
+    }
+
+    const probe = new Uint8Array(spectro.analyser.frequencyBinCount);
+    const interval = globalThis.setInterval(() => {
+      if (!audioElement || !spectro.analyser) return;
+
+      const mediaAdvancing =
+        !audioElement.paused && audioElement.currentTime > 0.5 && audioElement.readyState >= 2;
+      if (!mediaAdvancing) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      spectro.analyser.getByteFrequencyData(probe);
+      let peak = 0;
+      for (let i = 0; i < probe.length; i++) {
+        // eslint-disable-next-line security/detect-object-injection -- loop index is bounded by typed array length
+        if (probe[i] > peak) peak = probe[i];
+      }
+
+      if (peak > 0) {
+        zeroSignalSinceMs = 0;
+        liveSignalUnavailable = false;
+        return;
+      }
+
+      if (zeroSignalSinceMs === 0) {
+        zeroSignalSinceMs = Date.now();
+        return;
+      }
+
+      if (Date.now() - zeroSignalSinceMs >= ZERO_SIGNAL_GRACE_MS) {
+        liveSignalUnavailable = true;
+      }
+    }, ZERO_SIGNAL_CHECK_INTERVAL_MS);
+
+    return () => globalThis.clearInterval(interval);
+  });
 </script>
 
 {#if hasLiveAudioAccess()}
@@ -868,7 +941,7 @@
     {/if}
 
     <!-- Spectrogram canvas (fills remaining space) -->
-    <div class="min-h-0 flex-1">
+    <div class="relative min-h-0 flex-1">
       {#if isStreaming || isConnecting}
         <SpectrogramCanvas
           analyser={spectro.analyser}
@@ -883,6 +956,15 @@
           wallClockAtPlayhead={currentWallClockAtPlayhead}
           className="h-full w-full"
         />
+        {#if liveSignalUnavailable}
+          <div
+            class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/75 px-6 text-center"
+          >
+            <p class="max-w-2xl text-sm leading-6 text-[var(--color-base-content)]/80">
+              {liveSignalUnavailableMessage}
+            </p>
+          </div>
+        {/if}
       {:else}
         <!-- Click to start — user gesture required for AudioContext -->
         <button
