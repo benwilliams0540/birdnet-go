@@ -31,6 +31,8 @@ const (
 	liveSpectrogramMaxDecibels  = -30.0
 	liveSpectrogramMagnitudeEps = 1e-12
 	liveSpectrogramSmoothing    = 0.8
+	liveSpectrogramDisplayFloor = 0.04
+	liveSpectrogramGamma        = 1.35
 	liveSpectrogramByteMax      = 255
 )
 
@@ -353,7 +355,12 @@ func normalizeLiveSpectrogramDecibels(db float64) float64 {
 	if db >= liveSpectrogramMaxDecibels {
 		return 1
 	}
-	return (db - liveSpectrogramMinDecibels) / (liveSpectrogramMaxDecibels - liveSpectrogramMinDecibels)
+	normalized := (db - liveSpectrogramMinDecibels) / (liveSpectrogramMaxDecibels - liveSpectrogramMinDecibels)
+	if normalized <= liveSpectrogramDisplayFloor {
+		return 0
+	}
+	normalized = (normalized - liveSpectrogramDisplayFloor) / (1 - liveSpectrogramDisplayFloor)
+	return math.Pow(normalized, liveSpectrogramGamma)
 }
 
 func (c *liveSpectrogramConsumer) ID() string { return c.id }
