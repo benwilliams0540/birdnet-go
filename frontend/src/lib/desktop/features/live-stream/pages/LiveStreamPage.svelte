@@ -157,7 +157,8 @@
   async function startStream() {
     if (!selectedSourceId) return;
 
-    await stopStream();
+    stopStream();
+    void spectro.prime();
     isConnecting = true;
     connectionError = null;
 
@@ -192,6 +193,8 @@
       // Create audio element
       audioElement = new globalThis.Audio();
       audioElement.crossOrigin = 'anonymous';
+      audioElement.setAttribute('playsinline', 'true');
+      audioElement.muted = !audioOutput;
 
       // Audio element debug listeners for buffer underrun diagnosis
       let hasStalled = false;
@@ -491,7 +494,7 @@
     slotCounter = 0;
   }
 
-  async function stopStream() {
+  function stopStream() {
     // Abort in-flight async work first
     abortController?.abort();
     abortController = null;
@@ -552,8 +555,21 @@
   }
 
   function handleAudioOutputToggle() {
-    audioOutput = !audioOutput;
-    spectro.setAudioOutput(audioOutput);
+    const enabled = !audioOutput;
+    audioOutput = enabled;
+    if (audioElement) {
+      audioElement.muted = !enabled;
+      if (!audioElement.paused) {
+        spectro.setAudioOutput(enabled);
+        return;
+      }
+
+      audioElement.play().catch(() => {
+        // If playback is still blocked, the spectrogram can still recover once
+        // a later user gesture resumes the AudioContext.
+      });
+    }
+    spectro.setAudioOutput(enabled);
   }
 
   function handleGainChange(db: number) {

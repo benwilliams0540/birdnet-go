@@ -54,6 +54,7 @@ const OUTPUT_GAIN_UNMUTED = 1;
 const OUTPUT_GAIN_MUTED = 0;
 /** Short ramp duration (seconds) to avoid audible clicks when muting/unmuting */
 const GAIN_RAMP_DURATION = 0.01;
+const RESUME_GESTURE_EVENTS = ['pointerdown', 'keydown', 'touchstart'] as const;
 
 export function useSpectrogramAnalyser(options?: SpectrogramAnalyserOptions) {
   const fftSize = options?.fftSize ?? DEFAULT_FFT_SIZE;
@@ -74,6 +75,78 @@ export function useSpectrogramAnalyser(options?: SpectrogramAnalyserOptions) {
   let outputGainNode: GainNode | null = null;
   let highPassNode: BiquadFilterNode | null = null;
   let analyserNode: AnalyserNode | null = null;
+  let deferredResumeCleanup: (() => void) | null = null;
+
+  function clearDeferredResume(): void {
+    deferredResumeCleanup?.();
+    deferredResumeCleanup = null;
+  }
+
+  async function tryResumeAudioContext(
+    reason: string,
+    mediaElement?: HTMLMediaElement
+  ): Promise<void> {
+    const context = audioContext;
+    if (!context || context.state !== 'suspended') {
+      clearDeferredResume();
+      return;
+    }
+
+    try {
+      await context.resume();
+      logger.debug('Spectrogram AudioContext resumed', { reason });
+      clearDeferredResume();
+
+      if (mediaElement?.paused) {
+        try {
+          await mediaElement.play();
+        } catch {
+          // If playback is still blocked, keep the analyser ready and wait for
+          // the user's explicit play action on the media element.
+        }
+      }
+    } catch {
+      // Ignore resume failures; a later user gesture may succeed.
+    }
+  }
+
+  function armDeferredResume(mediaElement: HTMLMediaElement): void {
+    clearDeferredResume();
+
+    if (!audioContext || audioContext.state !== 'suspended') {
+      return;
+    }
+
+    const onWindowGesture = () => {
+      void tryResumeAudioContext('window-gesture', mediaElement);
+    };
+    const onMediaPlayback = () => {
+      void tryResumeAudioContext('media-playback', mediaElement);
+    };
+
+    for (const eventName of RESUME_GESTURE_EVENTS) {
+      globalThis.addEventListener(eventName, onWindowGesture, { passive: true });
+    }
+    mediaElement.addEventListener('play', onMediaPlayback);
+    mediaElement.addEventListener('playing', onMediaPlayback);
+
+    deferredResumeCleanup = () => {
+      for (const eventName of RESUME_GESTURE_EVENTS) {
+        globalThis.removeEventListener(eventName, onWindowGesture);
+      }
+      mediaElement.removeEventListener('play', onMediaPlayback);
+      mediaElement.removeEventListener('playing', onMediaPlayback);
+    };
+  }
+
+  async function prime(): Promise<void> {
+    if (!isAudioContextSupported()) {
+      return;
+    }
+
+    audioContext = await getAudioContext();
+    sampleRate = audioContext.sampleRate;
+  }
 
   /** Connect to a media element and set up the Web Audio graph */
   async function connect(mediaElement: HTMLMediaElement): Promise<void> {
@@ -132,6 +205,12 @@ export function useSpectrogramAnalyser(options?: SpectrogramAnalyserOptions) {
       analyser = analyserNode;
       isActive = true;
 
+      if (audioContext.state === 'suspended') {
+        armDeferredResume(mediaElement);
+      } else {
+        clearDeferredResume();
+      }
+
       logger.debug('Spectrogram analyser connected', {
         fftSize,
         sampleRate: audioContext.sampleRate,
@@ -146,6 +225,8 @@ export function useSpectrogramAnalyser(options?: SpectrogramAnalyserOptions) {
 
   /** Disconnect the audio graph */
   function disconnect(): void {
+    clearDeferredResume();
+
     try {
       if (outputGainNode) outputGainNode.disconnect();
       if (analyserNode) analyserNode.disconnect();
@@ -215,6 +296,7 @@ export function useSpectrogramAnalyser(options?: SpectrogramAnalyserOptions) {
     get fftSize() {
       return fftSize;
     },
+    prime,
     connect,
     disconnect,
     setAudioOutput,

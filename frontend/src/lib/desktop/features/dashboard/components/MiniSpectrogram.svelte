@@ -180,6 +180,7 @@
   async function start() {
     if (isActive || isConnecting) return;
     isConnecting = true;
+    void spectro.prime();
 
     // Abort any previous in-flight operation
     abortController?.abort();
@@ -218,6 +219,12 @@
 
       audioElement = new globalThis.Audio();
       audioElement.crossOrigin = 'anonymous';
+      audioElement.setAttribute('playsinline', 'true');
+      // Autoplay policies are much more permissive for muted media elements.
+      // The dashboard spectrogram defaults to silent monitoring, so mirror that
+      // at the HTMLMediaElement layer instead of relying only on the downstream
+      // Web Audio output gain node.
+      audioElement.muted = true;
 
       if (Hls.isSupported()) {
         hls = new Hls(HLS_AUDIO_CONFIG);
@@ -378,6 +385,15 @@
     gainPresetIndex = (gainPresetIndex + 1) % GAIN_PRESETS.length;
     // eslint-disable-next-line security/detect-object-injection -- gainPresetIndex is a numeric index bounded by modulo
     const preset = GAIN_PRESETS[gainPresetIndex];
+    if (audioElement) {
+      audioElement.muted = !preset.audio;
+      if (preset.audio && audioElement.paused) {
+        audioElement.play().catch(() => {
+          // Ignore autoplay errors here; the spectrogram can still resume on a
+          // later user gesture via the deferred AudioContext resume handler.
+        });
+      }
+    }
     spectro.setAudioOutput(preset.audio);
     // Always update gain -- when muted (db: -Infinity), this resets the
     // spectrogram visualization to 0 dB instead of leaving it at max gain.
