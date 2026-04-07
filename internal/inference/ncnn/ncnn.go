@@ -32,7 +32,7 @@ type inferenceMode int
 
 const (
 	modeUnknown  inferenceMode = 0
-	modeRawAudio inferenceMode = 1 // PNNX style: 1x144000 raw samples (full graph)
+	modeRawAudio inferenceMode = 1 // PNNX style: 1x144000 raw samples (full graph or wrapped split model)
 	modeSplitCNN inferenceMode = 2 // Split V2.4 CNN: 1x2x96x511 channel-first tensor
 )
 
@@ -66,6 +66,7 @@ type Options struct {
 // New creates a new NCNN Classifier.
 func New(opts Options) (*Classifier, error) {
 	net := C.ncnn_net_create()
+	registerBirdNETCustomLayers(net)
 
 	ncnnOpt := C.ncnn_option_create()
 	if opts.Threads > 0 {
@@ -95,15 +96,33 @@ func New(opts Options) (*Classifier, error) {
 	}
 
 	var loaded bool
+	var wrappedSplitModel bool
 	for _, p := range patterns {
 		paramFile = p[0]
 		paramPath = filepath.Join(opts.ModelDir, p[0])
 		binPath = filepath.Join(opts.ModelDir, p[1])
+		wrappedSplitModel = false
 
 		fmt.Printf("NCNN PROBING: %s\n", paramPath)
-		cParam := C.CString(paramPath)
-		retParam := C.ncnn_net_load_param(net, cParam)
-		C.free(unsafe.Pointer(cParam))
+		var retParam C.int
+		if shouldWrapSplitModelParam(paramFile) {
+			wrappedParam, err := buildBirdNETFrontendWrappedParamFromFile(paramPath)
+			if err != nil {
+				fmt.Printf("NCNN ERROR: wrap_param(%s) failed: %v\n", paramFile, err)
+				continue
+			}
+			cParam := C.CString(wrappedParam)
+			retParam = C.ncnn_net_load_param_memory(net, cParam)
+			C.free(unsafe.Pointer(cParam))
+			if retParam == 0 {
+				wrappedSplitModel = true
+				fmt.Printf("NCNN INFO: using BirdNETFrontend custom layer wrapper for %s\n", paramFile)
+			}
+		} else {
+			cParam := C.CString(paramPath)
+			retParam = C.ncnn_net_load_param(net, cParam)
+			C.free(unsafe.Pointer(cParam))
+		}
 		if retParam != 0 {
 			fmt.Printf("NCNN ERROR: load_param(%s) failed: %v\n", paramFile, retParam)
 			continue
@@ -134,7 +153,7 @@ func New(opts Options) (*Classifier, error) {
 		debugBlob:  os.Getenv("BIRDNET_NCNN_DEBUG_BLOB"),
 	}
 
-	if paramFile == "birdnet.pnnx.param" {
+	if paramFile == "birdnet.pnnx.param" || wrappedSplitModel {
 		c.mode = modeRawAudio
 		c.inputBlob = "in0"
 		c.outputBlob = "out0"

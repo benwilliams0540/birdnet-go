@@ -43,6 +43,44 @@ Unsupported slice step !
 This means the full BirdNET V2.4 ONNX graph is not directly convertible with the
 current `onnx2ncnn` tool on the device.
 
+### Full-model `pnnx` experiment from `source_models/BirdNET_V2.4.onnx`
+
+We also tried direct full-graph conversion with `pnnx` from the same trusted
+source model in order to preserve the raw-audio input path and give NCNN a real
+chance to accelerate more than just the CNN tail.
+
+Observed results:
+
+- `pnnx` default settings (`optlevel=2`) crashed during later lowering passes
+  after successfully parsing the ONNX graph and enumerating BirdNET's frontend
+  ops such as `DFT` and `Gather`.
+- `pnnx optlevel=0` emitted files, but the resulting `.param` still contained
+  PNNX dialect operators such as `aten::sub` and `prim::Constant`, which the
+  Uno Q's NCNN runtime could not load.
+- `pnnx optlevel=1` emitted a more NCNN-native `.param`, but BirdNET-Go still
+  failed to load it on the Uno Q because the runtime reported:
+
+```text
+layer Gather not exists or registered
+```
+
+The generated full-graph NCNN param also still contained frontend-specific ops
+that are not part of the currently working split-model route, including:
+
+- `Gather`
+- `DFT`
+- `pnnx.Expression`
+- `F.linear`
+
+Current conclusion:
+
+- A full raw-audio `birdnet.pnnx.param/bin` pair is not deployable on the Uno Q
+  with the current stock NCNN runtime integration.
+- The remaining blocker is no longer ONNX conversion alone. It is runtime layer
+  support for BirdNET's frontend graph.
+- If we continue the full-graph NCNN path, the most realistic next step is not
+  generic converter experimentation, but custom-layer work in the runtime.
+
 ### Split-model route from the same source ONNX
 
 The viable NCNN path still starts from the trusted
@@ -132,3 +170,6 @@ Unsupported transpose type !
   `pnnx` over the older embedded CNN experiment, because it preserves
   provenance from the source-of-truth model while avoiding the unsupported
   DFT/Gather front end and the incorrect `onnx2ncnn` conversion.
+- Treat any future full-graph `birdnet.pnnx.param/bin` attempt as experimental
+  until the required frontend operators are implemented or registered in the
+  target NCNN runtime.

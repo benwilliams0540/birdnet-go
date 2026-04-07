@@ -945,7 +945,8 @@ tasks:
         CC="$CROSS_ROOT/zig-cc" \
         CXX="$CROSS_ROOT/zig-cxx" \
         CGO_CFLAGS="-I$TFLITE_INCLUDE_DIR -I$CROSS_ROOT/ncnn/include" \
-        CGO_LDFLAGS="-L$TFLITE_LIB_DIR -L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu -ltensorflowlite_c" \
+        CGO_CXXFLAGS="-I$TFLITE_INCLUDE_DIR -I$CROSS_ROOT/ncnn/include -I$CROSS_ROOT/sysroot/usr/include/c++/14 -I$CROSS_ROOT/sysroot/usr/include/aarch64-linux-gnu/c++/14 -stdlib=libstdc++" \
+        CGO_LDFLAGS="-L$TFLITE_LIB_DIR -L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu -ltensorflowlite_c -lstdc++" \
         go build -tags onnx,ncnn,cross -trimpath {{.BUILD_FLAGS}} \
           -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq
 
@@ -1018,7 +1019,8 @@ tasks:
         CC="$CROSS_ROOT/zig-cc" \
         CXX="$CROSS_ROOT/zig-cxx" \
         CGO_CFLAGS="-I$CROSS_ROOT/ncnn/include" \
-        CGO_LDFLAGS="-L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu" \
+        CGO_CXXFLAGS="-I$CROSS_ROOT/ncnn/include -I$CROSS_ROOT/sysroot/usr/include/c++/14 -I$CROSS_ROOT/sysroot/usr/include/aarch64-linux-gnu/c++/14 -stdlib=libstdc++" \
+        CGO_LDFLAGS="-L$CROSS_ROOT/ncnn/lib -L$CROSS_ROOT/sysroot/usr/lib/aarch64-linux-gnu -lstdc++" \
         go build -tags ncnn,cross,notflite -trimpath {{.BUILD_FLAGS}} \
           -o {{.BINARY_DIR}}/{{.BINARY_NAME}}-unoq-ncnn
 
