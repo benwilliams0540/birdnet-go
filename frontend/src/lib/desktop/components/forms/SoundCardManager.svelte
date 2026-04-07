@@ -5,8 +5,8 @@
   functionality, summary bar, and empty state guidance.
 
   Features:
-  - Display source cards with device and model info
-  - Add new sources with name, device, gain, model, equalizer, quiet hours
+  - Display source cards with device info
+  - Add new sources with name, device, gain, equalizer, quiet hours
   - Summary bar showing source count
   - Empty state with guidance
   - Duplicate name/device validation
@@ -15,12 +15,10 @@
 -->
 <script lang="ts">
   import { Plus, Volume2, RefreshCw, ChevronDown } from '@lucide/svelte';
-  import { untrack } from 'svelte';
   import { slide } from 'svelte/transition';
   import { t } from '$lib/i18n';
   import { loggers } from '$lib/utils/logger';
   import { toastActions } from '$lib/stores/toast';
-  import { api } from '$lib/utils/api';
   import { cn } from '$lib/utils/cn';
   import SoundCardCard from './SoundCardCard.svelte';
   import SelectDropdown from './SelectDropdown.svelte';
@@ -53,48 +51,6 @@
 
   const logger = loggers.audio;
 
-  // Fetch available models from backend API
-  interface BackendModel {
-    id: string;
-    name: string;
-  }
-
-  let availableModels = $state<BackendModel[]>([]);
-
-  $effect(() => {
-    const controller = new AbortController();
-
-    untrack(() => {
-      api
-        .get<BackendModel[]>('/api/v2/models', { signal: controller.signal })
-        .then(data => {
-          if (Array.isArray(data)) {
-            availableModels = data;
-          } else {
-            logger.warn('Fetched models response is not an array', {
-              component: 'SoundCardManager',
-            });
-          }
-        })
-        .catch((err: unknown) => {
-          if (err instanceof Error && err.name !== 'AbortError') {
-            logger.error('Failed to fetch models', err, {
-              component: 'SoundCardManager',
-              action: 'fetchModels',
-            });
-          }
-        });
-    });
-
-    return () => controller.abort();
-  });
-
-  // Model options — default entry + dynamically loaded models
-  const modelOptions = $derived([
-    { value: '', label: t('settings.audio.soundCards.models.birdnetDefault') },
-    ...availableModels.map(m => ({ value: m.id, label: m.name })),
-  ]);
-
   interface Props {
     sources: AudioSourceConfig[];
     audioDevices: Array<{ index: number; name: string; id: string }>;
@@ -118,7 +74,6 @@
   let newName = $state('');
   let newDevice = $state('');
   let newGain = $state(0);
-  let newModel = $state('');
   let newEqualizer = $state<LocalEqualizerSettings>({ enabled: false, filters: [] });
   let newQuietHours = $state<QuietHoursConfig>({ ...defaultQuietHoursConfig });
   let showNewEqualizer = $state(false);
@@ -139,7 +94,6 @@
     newName = '';
     newDevice = '';
     newGain = 0;
-    newModel = '';
     newEqualizer = { enabled: false, filters: [] };
     newQuietHours = { ...defaultQuietHoursConfig };
     showNewEqualizer = false;
@@ -193,7 +147,7 @@
       name: trimmedName,
       device: newDevice,
       gain: newGain,
-      model: newModel,
+      model: '',
       equalizer: transformedEqualizer,
       quietHours: newQuietHours,
     };
@@ -283,13 +237,12 @@
       icon={Volume2}
       title={t('settings.audio.soundCards.emptyState.title')}
       description={t('settings.audio.soundCards.emptyState.description')}
-      hints={[
-        t('settings.audio.soundCards.emptyState.hints.device'),
-        t('settings.audio.soundCards.emptyState.hints.multiple'),
-        t('settings.audio.soundCards.emptyState.hints.model'),
-      ]}
-      hintsTitle={t('settings.audio.soundCards.emptyState.hintsTitle')}
-      primaryAction={{
+        hints={[
+          t('settings.audio.soundCards.emptyState.hints.device'),
+          t('settings.audio.soundCards.emptyState.hints.multiple'),
+        ]}
+        hintsTitle={t('settings.audio.soundCards.emptyState.hintsTitle')}
+        primaryAction={{
         label: t('settings.audio.soundCards.addSource'),
         icon: Plus,
         onclick: () => {
@@ -304,7 +257,6 @@
           {source}
           {index}
           {audioDevices}
-          {modelOptions}
           {disabled}
           onUpdate={updatedSource => updateSource(index, updatedSource)}
           onDelete={() => deleteSource(index)}
@@ -367,8 +319,8 @@
               {/if}
             </div>
 
-            <!-- Gain and Model -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Gain -->
+            <div>
               <InlineSlider
                 label={t('settings.audio.soundCards.gainLabel')}
                 value={newGain}
@@ -378,16 +330,6 @@
                 step={1}
                 unit=" dB"
                 {disabled}
-              />
-
-              <SelectDropdown
-                value={newModel}
-                label={t('settings.audio.soundCards.modelLabel')}
-                options={modelOptions}
-                {disabled}
-                onChange={value => (newModel = value as string)}
-                groupBy={false}
-                menuSize="sm"
               />
             </div>
 

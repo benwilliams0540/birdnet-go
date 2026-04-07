@@ -2,13 +2,12 @@
   Sound Card Card Component
 
   Purpose: Display and manage a single sound card audio source with
-  device selection, gain control, model selection, equalizer, and quiet hours.
+  device selection, gain control, equalizer, and quiet hours.
 
   Features:
   - Card with view/edit modes
   - Device dropdown from available audio devices
   - Gain slider (-40 to +40 dB)
-  - Model selector (dynamically loaded from backend)
   - Per-source equalizer (expandable, reuses AudioEqualizerSettings)
   - Per-source quiet hours (reuses QuietHoursEditor)
   - Delete confirmation overlay
@@ -60,7 +59,6 @@
     source: AudioSourceConfig;
     index: number;
     audioDevices: Array<{ index: number; name: string; id: string }>;
-    modelOptions: Array<{ value: string; label: string }>;
     disabled?: boolean;
     onUpdate: (_source: AudioSourceConfig) => boolean;
     onDelete: () => void;
@@ -70,7 +68,6 @@
     source,
     index,
     audioDevices,
-    modelOptions,
     disabled = false,
     onUpdate,
     onDelete,
@@ -81,7 +78,6 @@
   let editName = $state('');
   let editDevice = $state('');
   let editGain = $state(0);
-  let editModel = $state('');
   let editEqualizer = $state<LocalEqualizerSettings>({ enabled: false, filters: [] });
   let editQuietHours = $state<QuietHoursConfig>({ ...defaultQuietHoursConfig });
   let showDeleteConfirm = $state(false);
@@ -92,12 +88,6 @@
     audioDevices.find(d => d.id === source.device)?.name ?? source.device
   );
 
-  // Model display name
-  let modelDisplayName = $derived(
-    modelOptions.find(m => m.value === source.model)?.label ??
-      t('settings.audio.soundCards.models.birdnetDefault')
-  );
-
   // Device dropdown options
   let deviceOptions = $derived(audioDevices.map(d => ({ value: d.id, label: d.name })));
 
@@ -106,7 +96,6 @@
     editName = source.name;
     editDevice = source.device;
     editGain = source.gain;
-    editModel = source.model;
     editEqualizer = source.equalizer
       ? { ...source.equalizer, filters: [...source.equalizer.filters] }
       : { enabled: false, filters: [] };
@@ -139,7 +128,7 @@
       name: trimmedName,
       device: editDevice,
       gain: editGain,
-      model: editModel,
+      model: '',
       equalizer: transformedEqualizer,
       quietHours: editQuietHours,
     };
@@ -255,8 +244,8 @@
           menuSize="sm"
         />
 
-        <!-- Gain and Model Row -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Gain -->
+        <div>
           <InlineSlider
             label={t('settings.audio.soundCards.gainLabel')}
             value={editGain}
@@ -266,15 +255,6 @@
             step={1}
             unit=" dB"
             {disabled}
-          />
-
-          <SelectDropdown
-            value={editModel}
-            label={t('settings.audio.soundCards.modelLabel')}
-            options={modelOptions}
-            onChange={value => (editModel = value as string)}
-            groupBy={false}
-            menuSize="sm"
           />
         </div>
 
@@ -380,11 +360,6 @@
                 {source.gain > 0 ? '+' : ''}{source.gain} dB
               </span>
             {/if}
-            <span
-              class="px-2 py-0.5 rounded text-xs font-semibold bg-[var(--color-info)]/15 text-[var(--color-info)]"
-            >
-              {modelDisplayName}
-            </span>
           </div>
 
           <!-- Action Buttons -->

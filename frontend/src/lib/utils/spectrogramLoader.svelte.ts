@@ -13,8 +13,8 @@
  * Only the final image fetch (confirmed ready on disk) uses a slot.
  */
 
+import { fetchWithCSRF } from '$lib/utils/api';
 import { acquireSlot, releaseSlot, type SlotHandle } from '$lib/utils/imageLoadQueue';
-import { getCsrfToken } from '$lib/utils/api';
 import { loggers } from '$lib/utils/logger';
 
 const logger = loggers.ui;
@@ -253,29 +253,18 @@ export function createSpectrogramLoader(userConfig: SpectrogramLoaderConfig = {}
     abortController = new AbortController();
 
     try {
-      const csrfToken = getCsrfToken();
-      const headers: Record<string, string> = {};
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const response = await fetch(buildGenerateUrl(detectionId), {
+      const json = await fetchWithCSRF<{ data: { status: string } }>(buildGenerateUrl(detectionId), {
         method: 'POST',
-        headers,
         signal: abortController.signal,
       });
 
       if (isStale(detectionId)) return;
+      const status = json.data.status as SpectrogramStatus;
+      serverStatus = status;
 
-      if (response.ok || response.status === 202) {
-        const json = (await response.json()) as { data: { status: string } };
-        const status = json.data.status as SpectrogramStatus;
-        serverStatus = status;
-
-        if (status === 'exists') {
-          await acquireAndLoad(detectionId);
-          return;
-        }
+      if (status === 'exists') {
+        await acquireAndLoad(detectionId);
+        return;
       }
 
       startPolling(detectionId);
@@ -341,6 +330,35 @@ export function createSpectrogramLoader(userConfig: SpectrogramLoaderConfig = {}
 
         if (status === 'exists' || status === 'generated') {
           await acquireAndLoad(detectionId);
+          return;
+        }
+
+        if (status === 'not_started') {
+          // The original trigger may have been rejected or lost (for example an
+          // expired CSRF token before refresh). Re-trigger instead of polling a
+          // never-started job forever.
+          if (pollAttempts < config.maxPollAttempts) {
+            logger.debug('Spectrogram still not started during poll, re-triggering generation', {
+              detectionId,
+              attempt: pollAttempts,
+            });
+            currentPollInterval = Math.min(
+              config.initialPollIntervalMs * Math.pow(2, Math.min(pollAttempts, 4)),
+              config.maxPollIntervalMs
+            );
+            pollTimer = setTimeout(() => {
+              if (isStale(detectionId)) return;
+              void triggerGeneration(detectionId);
+            }, currentPollInterval);
+            return;
+          }
+          logger.warn('Spectrogram never started after repeated polling', {
+            detectionId,
+            attempts: pollAttempts,
+          });
+          state = 'error';
+          hasError = true;
+          showSpinner = false;
           return;
         }
 

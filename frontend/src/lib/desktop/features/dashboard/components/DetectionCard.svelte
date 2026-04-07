@@ -65,6 +65,7 @@
 
   let cardElement = $state<HTMLElement | undefined>(undefined);
   let isVisible = $state(false);
+  let hasAudioClip = $derived(Boolean(detection.clipName?.trim()));
 
   // Menu state for z-index management
   let isMenuOpen = $state(false);
@@ -104,7 +105,7 @@
 
   // Start/stop loader based on visibility
   $effect(() => {
-    if (isVisible) {
+    if (isVisible && hasAudioClip) {
       loader.start(detection.id);
     } else {
       loader.stop();
@@ -121,8 +122,10 @@
       audioPlaybackSpeed = DEFAULT_PLAYBACK_SPEED;
       audioContextAvailable = true;
 
-      if (isVisible) {
+      if (isVisible && hasAudioClip) {
         loader.start(currentId);
+      } else {
+        loader.stop();
       }
     }
     previousDetectionId = currentId;
@@ -194,7 +197,7 @@
   <div class="detection-card-inner">
     <!-- Spectrogram Background -->
     <div class="spectrogram-container">
-      {#if loader.showSpinner}
+      {#if hasAudioClip && loader.showSpinner}
         <div class="spectrogram-loading">
           <span class="loading loading-spinner loading-md text-[var(--color-base-content)]/50"
           ></span>
@@ -206,11 +209,11 @@
         </div>
       {/if}
 
-      {#if loader.error}
+      {#if hasAudioClip && loader.error}
         <div class="spectrogram-error">
           <span class="text-sm text-[var(--color-base-content)]/50">Spectrogram unavailable</span>
         </div>
-      {:else if loader.spectrogramUrl}
+      {:else if hasAudioClip && loader.spectrogramUrl}
         <img
           src={loader.spectrogramUrl}
           alt="Spectrogram for {detection.commonName}"
@@ -241,15 +244,17 @@
     </div>
 
     <!-- Center Play Button -->
-    <PlayOverlay
-      detectionId={detection.id}
-      {onFreezeStart}
-      {onFreezeEnd}
-      gainValue={audioGainValue}
-      filterFreq={audioFilterFreq}
-      playbackSpeed={audioPlaybackSpeed}
-      onAudioContextAvailable={handleAudioContextAvailable}
-    />
+    {#if hasAudioClip}
+      <PlayOverlay
+        detectionId={detection.id}
+        {onFreezeStart}
+        {onFreezeEnd}
+        gainValue={audioGainValue}
+        filterFreq={audioFilterFreq}
+        playbackSpeed={audioPlaybackSpeed}
+        onAudioContextAvailable={handleAudioContextAvailable}
+      />
+    {/if}
 
     <!-- Bottom Species Info Bar -->
     <SpeciesInfoBar {detection} />
@@ -257,18 +262,20 @@
 
   <!-- Top-Right Controls - OUTSIDE overflow-hidden container -->
   <div class="absolute top-2 right-2 z-50 flex items-center gap-1.5">
-    <AudioSettingsButton
-      gainValue={audioGainValue}
-      filterFreq={audioFilterFreq}
-      playbackSpeed={audioPlaybackSpeed}
-      defaultGainValue={getDefaultAudioGain()}
-      onGainChange={handleGainChange}
-      onFilterChange={handleFilterChange}
-      onSpeedChange={handleSpeedChange}
-      disabled={!audioContextAvailable}
-      onMenuOpen={handleAudioSettingsOpen}
-      onMenuClose={handleAudioSettingsClose}
-    />
+    {#if hasAudioClip}
+      <AudioSettingsButton
+        gainValue={audioGainValue}
+        filterFreq={audioFilterFreq}
+        playbackSpeed={audioPlaybackSpeed}
+        defaultGainValue={getDefaultAudioGain()}
+        onGainChange={handleGainChange}
+        onFilterChange={handleFilterChange}
+        onSpeedChange={handleSpeedChange}
+        disabled={!audioContextAvailable}
+        onMenuOpen={handleAudioSettingsOpen}
+        onMenuClose={handleAudioSettingsClose}
+      />
+    {/if}
     <CardActionMenu
       {detection}
       {isExcluded}

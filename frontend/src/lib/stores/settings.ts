@@ -141,7 +141,7 @@ export interface AudioSourceConfig {
   name: string;
   device: string;
   gain: number;
-  model: string; // "birdnet" | "perch_v2" | "bat" | "" (empty = default birdnet)
+  model?: string; // legacy per-source model field; the Audio Settings UI no longer edits it
   equalizer?: EqualizerSettings;
   quietHours?: QuietHoursConfig;
 }

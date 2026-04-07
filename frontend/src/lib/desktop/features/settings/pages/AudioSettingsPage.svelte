@@ -414,8 +414,13 @@
 
   // Update handlers
   function updateAudioSources(sources: AudioSourceConfig[]) {
+    const normalizedSources = sources.map(source => ({
+      ...source,
+      model: '',
+    }));
+
     settingsActions.updateSection('realtime', {
-      audio: { ...$audioSettings!, sources },
+      audio: { ...$audioSettings!, sources: normalizedSources },
     });
   }
 

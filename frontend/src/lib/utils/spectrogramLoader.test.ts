@@ -17,9 +17,12 @@ vi.mock('$lib/utils/imageLoadQueue', () => ({
   MAX_CONCURRENT_IMAGE_LOADS: 3,
 }));
 
-// Mock CSRF token
+// Mock CSRF-aware API helper
 vi.mock('$lib/utils/api', () => ({
-  getCsrfToken: () => 'test-csrf-token',
+  fetchWithCSRF: async (url: string, options?: RequestInit) => {
+    const response = await mockFetch(url, options);
+    return response.json();
+  },
 }));
 
 // Mock logger
@@ -123,7 +126,7 @@ describe('spectrogramLoader', () => {
         '/api/v2/spectrogram/42/generate?size=md&raw=true',
         expect.objectContaining({
           method: 'POST',
-          headers: { 'X-CSRF-Token': 'test-csrf-token' },
+          signal: expect.any(AbortSignal),
         })
       );
       expect(loader.state).toBe('polling');
@@ -189,6 +192,31 @@ describe('spectrogramLoader', () => {
 
       expect(loader.isQueued).toBe(false);
       expect(loader.isGenerating).toBe(true);
+      loader.destroy();
+    });
+  });
+
+  describe('stalled generation recovery', () => {
+    it('re-triggers generation when polling still reports not_started', async () => {
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { status: 'not_started' } }));
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { status: 'queued' } }, 202));
+
+      const loader = createSpectrogramLoader({ initialPollIntervalMs: 100, maxPollIntervalMs: 100 });
+      loader.start(42);
+      await flushAll();
+
+      mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { status: 'not_started' } }));
+      await vi.advanceTimersByTimeAsync(100);
+      await flushAll();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/v2/spectrogram/42/generate?size=md&raw=true',
+        expect.objectContaining({
+          method: 'POST',
+          signal: expect.any(AbortSignal),
+        })
+      );
+      expect(loader.state).toBe('polling');
       loader.destroy();
     });
   });

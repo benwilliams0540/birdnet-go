@@ -2397,6 +2397,16 @@ func (c *Controller) cleanupQueueStatus(spectrogramKey string) {
 	spectrogramQueue.Delete(spectrogramKey)
 }
 
+// finalizeQueueStatus makes generation failures visible to polling clients
+// before removing the queue entry.
+func (c *Controller) finalizeQueueStatus(spectrogramKey string, generationErr error) {
+	if generationErr != nil && !spectrogram.IsOperationalError(generationErr) {
+		c.updateQueueStatus(spectrogramKey, spectrogramStatusFailed, 0, "Generation failed: "+generationErr.Error())
+	}
+
+	c.cleanupQueueStatus(spectrogramKey)
+}
+
 // acquireSemaphoreSlot acquires a semaphore slot for spectrogram generation
 // With timeout handling to prevent indefinite blocking
 func (c *Controller) acquireSemaphoreSlot(ctx context.Context, spectrogramKey string) error {
@@ -2626,7 +2636,7 @@ func (c *Controller) generateWithFallback(ctx context.Context, absAudioPath, abs
 // It accepts a context for cancellation and timeout.
 // It returns the relative path to the generated spectrogram, suitable for use with c.SFS.ServeFile.
 // Optimized: Fast path check happens before expensive audio validation.
-func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, width int, raw bool, style, dynamicRange string) (string, error) {
+func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, width int, raw bool, style, dynamicRange string) (relPath string, err error) {
 	start := time.Now()
 	getSpectrogramLogger().Debug("Spectrogram generation requested",
 		logger.String("audio_path", audioPath),
@@ -2675,7 +2685,9 @@ func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, 
 	c.initializeQueueStatus(spectrogramKey)
 
 	// Clean up queue entry on exit
-	defer c.cleanupQueueStatus(spectrogramKey)
+	defer func() {
+		c.finalizeQueueStatus(spectrogramKey, err)
+	}()
 
 	// Use singleflight to coalesce duplicate requests for the same spectrogram.
 	// Audio validation (FFprobe) and generation run inside the group so that
