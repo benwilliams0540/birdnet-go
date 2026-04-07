@@ -104,7 +104,7 @@ func (t *SpeciesTracker) IsNewSpecies(scientificName string) bool {
 		return true // Never seen before
 	}
 
-	daysSince := int(time.Since(firstSeen).Hours() / hoursPerDay)
+	daysSince := calculateDaysSince(time.Now(), firstSeen)
 	return daysSince <= t.windowDays
 }
 
@@ -123,18 +123,8 @@ func (t *SpeciesTracker) checkAndUpdateLifetimeLocked(scientificName string, det
 		return true, 0
 	}
 
-	// Calculate days since first seen
-	daysSince := int(detectionTime.Sub(firstSeen) / (hoursPerDay * time.Hour))
-	if daysSince < 0 {
-		// Handle anomaly: treat as earliest detection
-		getLog().Debug("Negative days calculation detected - treating as earliest detection",
-			logger.String("species", scientificName),
-			logger.String("detection_time", detectionTime.Format("2006-01-02 15:04:05.000")),
-			logger.String("first_seen", firstSeen.Format("2006-01-02 15:04:05.000")))
-		t.speciesFirstSeen[scientificName] = detectionTime
-		return true, 0
-	}
-
+	// Calculate calendar days since first seen (DST-safe, clamped to 0)
+	daysSince := calculateDaysSince(detectionTime, firstSeen)
 	return daysSince <= t.windowDays, daysSince
 }
 

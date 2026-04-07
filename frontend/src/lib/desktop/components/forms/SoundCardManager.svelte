@@ -14,7 +14,7 @@
   @component
 -->
 <script lang="ts">
-  import { Plus, Volume2, RefreshCw, ChevronDown } from '@lucide/svelte';
+  import { Plus, Mic, RefreshCw, ChevronDown } from '@lucide/svelte';
   import { slide } from 'svelte/transition';
   import { t } from '$lib/i18n';
   import { loggers } from '$lib/utils/logger';
@@ -147,7 +147,7 @@
       name: trimmedName,
       device: newDevice,
       gain: newGain,
-      model: '',
+      models: [],
       equalizer: transformedEqualizer,
       quietHours: newQuietHours,
     };
@@ -213,7 +213,7 @@
   {#if sources.length > 0}
     <div class="flex items-center justify-between p-3 bg-[var(--color-base-200)] rounded-lg">
       <div class="flex items-center gap-2">
-        <Volume2 class="size-4 text-[var(--color-base-content)]/70" />
+        <Mic class="size-4 text-[var(--color-base-content)]/70" />
         <span class="text-sm font-medium">
           {t('settings.audio.soundCards.summary', { count: sources.length })}
         </span>
@@ -234,7 +234,7 @@
   <!-- Source Cards -->
   {#if sources.length === 0 && !showAddForm}
     <EmptyState
-      icon={Volume2}
+      icon={Mic}
       title={t('settings.audio.soundCards.emptyState.title')}
       description={t('settings.audio.soundCards.emptyState.description')}
         hints={[
@@ -330,6 +330,7 @@
                 step={1}
                 unit=" dB"
                 {disabled}
+                className="h-full [&>input]:my-auto"
               />
             </div>
 

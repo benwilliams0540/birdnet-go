@@ -162,9 +162,12 @@ func NewService(settings *conf.Settings, db datastore.Interface, weatherMetrics 
 		provider = NewOpenWeatherProvider()
 	case "wunderground":
 		provider = NewWundergroundProvider(nil)
-	case "", "none":
-		// Explicitly disabled or not configured — treat as disabled
-		getLogger().Info("Weather provider not configured, weather service disabled")
+	case "":
+		// Not configured — default to yr.no
+		provider = NewYrNoProvider()
+	case "none":
+		// Explicitly disabled
+		getLogger().Info("Weather provider set to none, weather service disabled")
 		return nil, ErrWeatherDisabled
 	default:
 		// Unrecognized provider — warn and treat as disabled rather than

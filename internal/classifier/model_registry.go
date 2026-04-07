@@ -14,10 +14,24 @@ import (
 // cannot be matched to a known registry entry.
 const modelIDCustom = "Custom"
 
+// Model display names — single source of truth for user-facing model names.
+const (
+	ModelNameBirdNETv24 = "BirdNET v2.4"
+	ModelNameBirdNETv30 = "BirdNET v3.0"
+	ModelNamePerchV2    = "Google Perch v2"
+)
+
+// Inference backend identifiers.
+const (
+	BackendTFLite = "TFLite"
+	BackendONNX   = "ONNX"
+)
+
 // ModelInfo represents metadata about a classifier model.
 type ModelInfo struct {
 	ID               string    // Unique registry identifier (e.g., "BirdNET_V2.4")
-	Name             string    // User-friendly name
+	Name             string    // User-friendly name (e.g., "BirdNET v2.4")
+	Backend          string    // Inference backend: "TFLite" or "ONNX"
 	DetectionName    string    // Database model name (e.g., "BirdNET", "Perch")
 	DetectionVersion string    // Database model version (e.g., "2.4", "V2")
 	Description      string    // Description of the model
@@ -30,24 +44,21 @@ type ModelInfo struct {
 	IsONNX           bool      // True when the model must be loaded via the ONNX backend
 }
 
+// DisplayName returns the user-facing name including the backend type, e.g. "BirdNET v2.4 (TFLite)".
+func (m *ModelInfo) DisplayName() string {
+	if m.Backend == "" {
+		return m.Name
+	}
+	return m.Name + " (" + m.Backend + ")"
+}
+
 // ModelRegistry is the single source of truth for all supported models.
 // All model identity lookups, config validation, and spec queries derive from this.
 var ModelRegistry = map[string]ModelInfo{
-	"BirdNET_V3.0": {
-		ID:               "BirdNET_V3.0",
-		Name:             "BirdNET+ V3.0 Preview 3 Global 11K FP32",
-		DetectionName:    "BirdNET",
-		DetectionVersion: "3.0",
-		Description:      "Global model with 11560 species",
-		Spec:             ModelSpec{SampleRate: 48000, ClipLength: 3 * time.Second},
-		ConfigAliases:    []string{"birdnet_v3"},
-		SupportedLocales: []string{"en"},
-		DefaultLocale:    "en",
-		NumSpecies:       11560,
-	},
 	"BirdNET_V2.4": {
 		ID:               "BirdNET_V2.4",
-		Name:             "BirdNET GLOBAL 6K V2.4",
+		Name:             ModelNameBirdNETv24,
+		Backend:          BackendTFLite,
 		DetectionName:    "BirdNET",
 		DetectionVersion: "2.4",
 		Description:      "Global model with 6523 species",
@@ -57,7 +68,7 @@ var ModelRegistry = map[string]ModelInfo{
 			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
 			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
 		DefaultLocale: "en-uk",
-		NumSpecies:    6522,
+		NumSpecies:    6523,
 	},
 	"BirdNET_V2.4_INT8": {
 		ID:               "BirdNET_V2.4_INT8",
@@ -159,9 +170,24 @@ var ModelRegistry = map[string]ModelInfo{
 		DefaultLocale: "en-uk",
 		NumSpecies:    6522,
 	},
+	"BirdNET_V3.0": {
+		ID:               "BirdNET_V3.0",
+		Name:             ModelNameBirdNETv30,
+		Backend:          BackendONNX,
+		DetectionName:    "BirdNET",
+		DetectionVersion: "3.0",
+		Description:      "BirdNET v3.0 model (32kHz, 5s clips, embeddings)", // NumSpecies omitted: determined at runtime from label file
+		Spec:             ModelSpec{SampleRate: 32000, ClipLength: 5 * time.Second},
+		ConfigAliases:    []string{"birdnet_v3.0", "birdnet_v3"},
+		SupportedLocales: []string{"af", "ar", "bg", "ca", "cs", "da", "de", "el", "en-uk", "en-us", "es",
+			"et", "fi", "fr", "he", "hr", "hu", "id", "is", "it", "ja", "ko", "lt", "lv", "ml", "nl",
+			"no", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", "sl", "sr", "sv", "th", "tr", "uk", "zh"},
+		DefaultLocale: "en-uk",
+	},
 	"Perch_V2": {
 		ID:               "Perch_V2",
-		Name:             "Google Perch V2",
+		Name:             ModelNamePerchV2,
+		Backend:          BackendONNX,
 		DetectionName:    "Perch",
 		DetectionVersion: "V2",
 		Description:      "Perch v2 model with ~14,795 species (scientific names only)",
@@ -173,15 +199,15 @@ var ModelRegistry = map[string]ModelInfo{
 
 // birdnetVersionToRegistryID maps user-facing BirdNET version strings to registry IDs.
 var birdnetVersionToRegistryID = map[string]string{
-	"2.4":          "BirdNET_V2.4",
-	"2.4-int8":     "BirdNET_V2.4_INT8",
-	"2.4-int8-cnn": "BirdNET_V2.4_INT8_CNN",
-	"2.4-cnn-fp32": "BirdNET_V2.4_CNN_FP32",
-	"2.4-cnn-fp16": "BirdNET_V2.4_CNN_FP16",
-	"2.4-cnn-int8": "BirdNET_V2.4_CNN_INT8",
-	"2.4-ncnn-pnnx": "BirdNET_V2.4_NCNN_PNNX",
+	"2.4":               "BirdNET_V2.4",
+	"2.4-int8":          "BirdNET_V2.4_INT8",
+	"2.4-int8-cnn":      "BirdNET_V2.4_INT8_CNN",
+	"2.4-cnn-fp32":      "BirdNET_V2.4_CNN_FP32",
+	"2.4-cnn-fp16":      "BirdNET_V2.4_CNN_FP16",
+	"2.4-cnn-int8":      "BirdNET_V2.4_CNN_INT8",
+	"2.4-ncnn-pnnx":     "BirdNET_V2.4_NCNN_PNNX",
 	"2.4-ncnn-standard": "BirdNET_V2.4_NCNN_Standard",
-	"3.0":          "BirdNET_V3.0",
+	"3.0":               "BirdNET_V3.0",
 }
 
 // KnownConfigIDs collects all ConfigAliases from the registry.
@@ -229,6 +255,9 @@ var filenamePatterns = map[string]string{
 	"birdnet-go_classifier":  "BirdNET_V2.4", // custom-named classifier builds
 	"birdnet_int8":           "BirdNET_V2.4_INT8",
 	"birdnet_int8_cnn":       "BirdNET_V2.4_INT8_CNN",
+	"birdnet_global_v3.0":    "BirdNET_V3.0",
+	"birdnet-v30":            "BirdNET_V3.0",
+	"birdnet-v3.0":           "BirdNET_V3.0",
 	"perch_v2":               "Perch_V2",
 	"perch-v2":               "Perch_V2",
 }

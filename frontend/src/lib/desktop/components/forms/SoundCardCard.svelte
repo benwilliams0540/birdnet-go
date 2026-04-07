@@ -16,16 +16,7 @@
   @component
 -->
 <script lang="ts">
-  import {
-    Settings,
-    Trash2,
-    Check,
-    X,
-    AlertCircle,
-    Volume2,
-    Moon,
-    ChevronDown,
-  } from '@lucide/svelte';
+  import { Settings, Trash2, Check, X, AlertCircle, Mic, Moon, ChevronDown } from '@lucide/svelte';
   import { slide } from 'svelte/transition';
   import { t } from '$lib/i18n';
   import { cn } from '$lib/utils/cn';
@@ -91,6 +82,18 @@
   // Device dropdown options
   let deviceOptions = $derived(audioDevices.map(d => ({ value: d.id, label: d.name })));
 
+  function getSourceModels(config: AudioSourceConfig): string[] {
+    if (Array.isArray(config.models) && config.models.length > 0) {
+      return [...config.models];
+    }
+
+    if (config.model) {
+      return [config.model];
+    }
+
+    return [];
+  }
+
   // Edit mode functions
   function startEdit() {
     editName = source.name;
@@ -128,7 +131,7 @@
       name: trimmedName,
       device: editDevice,
       gain: editGain,
-      model: '',
+      models: getSourceModels(source),
       equalizer: transformedEqualizer,
       quietHours: editQuietHours,
     };
@@ -255,6 +258,7 @@
             step={1}
             unit=" dB"
             {disabled}
+            className="h-full [&>input]:my-auto"
           />
         </div>
 
@@ -324,7 +328,7 @@
         <div
           class="flex-shrink-0 size-10 rounded-lg flex items-center justify-center border bg-[color-mix(in_srgb,var(--color-primary)_15%,transparent)] text-[var(--color-primary)] border-[color-mix(in_srgb,var(--color-primary)_25%,transparent)]"
         >
-          <Volume2 class="size-5" />
+          <Mic class="size-5" />
         </div>
 
         <!-- Source Info -->

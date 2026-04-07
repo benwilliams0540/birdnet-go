@@ -178,6 +178,7 @@ type Interface interface {
 	SaveImageCache(cache *ImageCache) error
 	GetAllImageCaches(providerName string) ([]ImageCache, error)
 	GetLockedNotesClipPaths() ([]string, error)
+	ClearNoteClipPathsByNames(clipNames []string) (int64, error)
 	CountHourlyDetections(date, hour string, duration int) (int64, error)
 	// Analytics methods
 	GetSpeciesSummaryData(ctx context.Context, startDate, endDate string) ([]SpeciesSummaryData, error)
@@ -273,8 +274,13 @@ func New(settings *conf.Settings) Interface {
 			},
 		}
 	default:
-		// Consider handling the case where neither database is enabled
-		return nil
+		// No database explicitly enabled — default to SQLite
+		return &SQLiteStore{
+			Settings: settings,
+			DataStore: DataStore{
+				SunCalc: sunCalc,
+			},
+		}
 	}
 }
 
@@ -1949,6 +1955,45 @@ func (ds *DataStore) GetLockedNotesClipPaths() ([]string, error) {
 	}
 
 	return clipPaths, nil
+}
+
+// ClearNoteClipPathsByNames clears the clip_name field for notes matching the given filenames.
+// This is used by the disk manager to remove stale references after audio files are deleted.
+// Updates are batched to stay within SQLite's parameter limit (999).
+func (ds *DataStore) ClearNoteClipPathsByNames(clipNames []string) (int64, error) {
+	if len(clipNames) == 0 {
+		return 0, nil
+	}
+
+	const batchSize = 500
+	var totalAffected int64
+
+	for i := 0; i < len(clipNames); i += batchSize {
+		end := min(i+batchSize, len(clipNames))
+		batch := clipNames[i:end]
+
+		var batchAffected int64
+		err := RetryOnLock(context.Background(), "clear_clip_paths_by_names", func() error {
+			result := ds.DB.Model(&Note{}).Where("clip_name IN ?", batch).Update("clip_name", "")
+			if result.Error != nil {
+				return errors.New(result.Error).
+					Component("datastore").
+					Category(errors.CategoryDatabase).
+					Context("operation", "clear_clip_paths_by_names").
+					Context("clip_count", len(batch)).
+					Build()
+			}
+			batchAffected = result.RowsAffected
+			return nil
+		}, ds.getMetrics())
+
+		if err != nil {
+			return totalAffected, err
+		}
+		totalAffected += batchAffected
+	}
+
+	return totalAffected, nil
 }
 
 // CountHourlyDetections counts the number of detections for a specific date and hour.

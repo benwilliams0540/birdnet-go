@@ -208,7 +208,7 @@ describe('SelectDropdown', () => {
       expect(onChange).toHaveBeenCalledWith(['banana']);
     });
 
-    it('shows checkboxes for multiple selection', async () => {
+    it('shows selectable options for multiple selection', async () => {
       selectTest.render({
         props: {
           options: basicOptions,
@@ -218,8 +218,8 @@ describe('SelectDropdown', () => {
 
       await fireEvent.click(screen.getByRole('button'));
 
-      const checkboxes = screen.getAllByRole('checkbox');
-      expect(checkboxes).toHaveLength(basicOptions.length);
+      const options = screen.getAllByRole('option');
+      expect(options).toHaveLength(basicOptions.length);
     });
 
     it('respects maxSelections', async () => {

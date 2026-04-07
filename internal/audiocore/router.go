@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tphakala/birdnet-go/internal/audiocore/resample"
+	"github.com/tphakala/birdnet-go/internal/errors"
 	"github.com/tphakala/birdnet-go/internal/logger"
 )
 
@@ -23,6 +24,11 @@ const (
 
 	// errorLogInterval controls how often consumer write errors are logged.
 	errorLogInterval = 100
+
+	// dropSentryThreshold is the total number of drops per route before
+	// a single Sentry report is fired. This fires once — the log.Warn at
+	// dropLogInterval provides ongoing visibility.
+	dropSentryThreshold int64 = 1000
 )
 
 // drainerStopTimeout is the maximum time to wait for a drainer goroutine
@@ -243,6 +249,15 @@ func (r *AudioRouter) Dispatch(frame AudioFrame) { //nolint:gocritic // hugePara
 					logger.String("consumer_id", rt.Consumer.ID()),
 					logger.Int64("total_drops", drops))
 			}
+			if drops == dropSentryThreshold {
+				_ = errors.Newf("consumer dropped %d frames, likely cannot keep up", drops).
+					Component("audiocore.router").
+					Category(errors.CategoryAudio).
+					Context("operation", "sustained_frame_drops").
+					Context("source_id", frame.SourceID).
+					Context("consumer_id", rt.Consumer.ID()).
+					Build()
+			}
 		}
 	}
 }
@@ -322,6 +337,13 @@ func (r *AudioRouter) stopRoute(route *Route) {
 		r.log.Warn("drainer goroutine did not exit in time, leaking resources",
 			logger.String("source_id", route.SourceID),
 			logger.String("consumer_id", route.Consumer.ID()))
+		_ = errors.Newf("drainer goroutine leaked after %s timeout", drainerStopTimeout).
+			Component("audiocore.router").
+			Category(errors.CategoryResource).
+			Context("operation", "drainer_goroutine_leaked").
+			Context("source_id", route.SourceID).
+			Context("consumer_id", route.Consumer.ID()).
+			Build()
 	}
 }
 
@@ -331,6 +353,50 @@ func (r *AudioRouter) stopRoute(route *Route) {
 // channel is closed or the router's context is cancelled.
 func (r *AudioRouter) drainRoute(route *Route) {
 	defer close(route.stopped)
+	defer func() {
+		if p := recover(); p != nil {
+			var panicErr error
+			if asErr, ok := p.(error); ok {
+				panicErr = fmt.Errorf("panic in drainer goroutine: %w", asErr)
+			} else {
+				panicErr = fmt.Errorf("panic in drainer goroutine: %v", p)
+			}
+			r.log.Error("panic in drainer goroutine, route terminated",
+				logger.String("source_id", route.SourceID),
+				logger.String("consumer_id", route.Consumer.ID()),
+				logger.Any("panic", p))
+			_ = errors.New(panicErr).
+				Component("audiocore.router").
+				Category(errors.CategoryAudio).
+				Context("operation", "drainer_goroutine_panic").
+				Context("source_id", route.SourceID).
+				Context("consumer_id", route.Consumer.ID()).
+				Priority(errors.PriorityCritical).
+				Build()
+			// Remove the dead route from the map so HasConsumers/Dispatch
+			// stop sending frames to an inbox nobody drains.
+			r.mu.Lock()
+			routes := r.routes[route.SourceID]
+			for i, rt := range routes {
+				if rt != route {
+					continue
+				}
+				routes[i] = routes[len(routes)-1]
+				routes[len(routes)-1] = nil
+				r.routes[route.SourceID] = routes[:len(routes)-1]
+				if len(r.routes[route.SourceID]) == 0 {
+					delete(r.routes, route.SourceID)
+				}
+				break
+			}
+			r.mu.Unlock()
+			// Goroutine returns here — the route is removed from the map.
+			// Note: consumer and resampler are intentionally NOT closed here
+			// to avoid potential secondary panics during cleanup. They will
+			// be reclaimed by GC. The stopped channel is closed by the outer
+			// defer for consistency.
+		}
+	}()
 	for {
 		select {
 		case frame := <-route.inbox:

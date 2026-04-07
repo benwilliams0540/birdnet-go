@@ -1,5 +1,6 @@
 ARG TFLITE_LIB_DIR=/usr/lib
 ARG TENSORFLOW_VERSION=2.17.1
+ARG ONNXRUNTIME_VERSION=1.24.4
 
 FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS buildenv
 
@@ -49,18 +50,34 @@ ARG BUILD_VERSION
 ENV BUILD_VERSION=${BUILD_VERSION:-unknown}
 
 ARG TARGETPLATFORM
+ARG ONNXRUNTIME_VERSION
 
 # Skip puppeteer download during build (not needed for production)
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
-# Build assets and compile BirdNET-Go (non-embedded build)
+# Download ONNX Runtime for the target platform
+RUN ONNX_ARCH=$(case "${TARGETPLATFORM}" in \
+        "linux/amd64") echo "x64" ;; \
+        "linux/arm64") echo "aarch64" ;; \
+        *) echo "Error: unsupported platform ${TARGETPLATFORM}" >&2; exit 1 ;; \
+    esac) && \
+    echo "Downloading ONNX Runtime ${ONNXRUNTIME_VERSION} for ${ONNX_ARCH}" && \
+    curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-${ONNX_ARCH}-${ONNXRUNTIME_VERSION}.tgz" \
+        -o /tmp/onnxruntime.tgz && \
+    mkdir -p /tmp/onnxruntime && \
+    tar -xzf /tmp/onnxruntime.tgz -C /tmp/onnxruntime --strip-components=1 && \
+    cp /tmp/onnxruntime/lib/libonnxruntime*.so* /home/dev-user/lib/ && \
+    rm -rf /tmp/onnxruntime /tmp/onnxruntime.tgz
+
+# Build assets and compile BirdNET-Go with TFLite + ONNX support (non-embedded build)
+# EXTRA_BUILD_TAGS adds the onnx tag to the noembed build in a single compilation pass
 # Note: frontend-build (including Tailwind) is handled as a dependency of noembed_* tasks
 RUN --mount=type=cache,target=/go/pkg/mod,uid=10001,gid=10001 \
     --mount=type=cache,target=/home/dev-user/.cache/go-build,uid=10001,gid=10001 \
     task check-tensorflow && \
     TARGET=$(echo ${TARGETPLATFORM} | tr '/' '_') && \
     echo "Building non-embedded version with BUILD_VERSION=${BUILD_VERSION}" && \
-    BUILD_VERSION="${BUILD_VERSION}" DOCKER_LIB_DIR=/home/dev-user/lib task noembed_${TARGET}
+    BUILD_VERSION="${BUILD_VERSION}" DOCKER_LIB_DIR=/home/dev-user/lib EXTRA_BUILD_TAGS=onnx task noembed_${TARGET}
 
 # Create final image using a multi-platform base image
 FROM --platform=$TARGETPLATFORM debian:trixie-slim
@@ -81,6 +98,7 @@ RUN apt-get update -q && apt-get install -q -y --no-install-recommends \
     libasound2 \
     ffmpeg \
     sox \
+    libsox-fmt-mp3 \
     procps \
     iproute2 \
     net-tools \
@@ -110,6 +128,9 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
 
 # Copy TensorFlow Lite library from build stage
 COPY --from=build /home/dev-user/lib/libtensorflowlite_c.so* ${TFLITE_LIB_DIR}/
+
+# Copy ONNX Runtime libraries from build stage
+COPY --from=build /home/dev-user/lib/libonnxruntime*.so* /usr/lib/
 RUN ldconfig
 
 # Include reset_auth tool from build stage
@@ -142,7 +163,7 @@ COPY --from=build /home/dev-user/src/BirdNET-Go/bin /usr/bin/
 
 # Add container labels for metadata and compatibility information
 LABEL org.opencontainers.image.title="BirdNET-Go"
-LABEL org.opencontainers.image.description="Real-time bird sound identification using BirdNET"
+LABEL org.opencontainers.image.description="Real-time bird sound identification using BirdNET with ONNX Runtime support"
 LABEL org.opencontainers.image.source="https://github.com/tphakala/birdnet-go"
 LABEL org.opencontainers.image.documentation="https://github.com/tphakala/birdnet-go/blob/main/README.md"
 LABEL org.opencontainers.image.url="https://github.com/tphakala/birdnet-go"
@@ -166,9 +187,11 @@ LABEL usage.compose.docker="Use Docker/docker-compose.yml"
 LABEL usage.compose.podman="Use Podman/podman-compose.yml"
 
 # Add healthcheck to monitor container status
+# Uses /health endpoint and validates JSON status via jq to avoid false positives
+# from HTTP->HTTPS 308 redirects (curl -f treats 3xx as success).
 # Extended start-period for low-power devices (e.g., Raspberry Pi)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:8080/ || exit 1
+    CMD curl -fs --connect-timeout 2 --max-time 3 http://localhost:8080/health | jq -e '.status == "healthy"' >/dev/null || curl -fsk --connect-timeout 2 --max-time 3 https://localhost:8443/health | jq -e '.status == "healthy"' >/dev/null || curl -fsk --connect-timeout 2 --max-time 3 https://localhost:443/health | jq -e '.status == "healthy"' >/dev/null || exit 1
 
 # Container startup execution chain:
 # 1. entrypoint.sh - Sets up user permissions, timezone, device access, and performs

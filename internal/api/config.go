@@ -92,7 +92,9 @@ func ConfigFromSettings(settings *conf.Settings) *Config {
 
 	// Server binding - use port only, bind to all interfaces
 	// Note: Security.Host is for external URLs (TLS certs, OAuth), not for socket binding
-	cfg.Port = settings.WebServer.Port
+	if settings.WebServer.Port != "" {
+		cfg.Port = settings.WebServer.Port
+	}
 	cfg.Host = "" // Bind to all interfaces (0.0.0.0)
 
 	// TLS settings - map from TLSMode to server config

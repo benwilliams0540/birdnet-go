@@ -567,8 +567,8 @@ func (c *Controller) ServeAudioByID(ctx echo.Context) error {
 	originalFilename := filepath.Base(clipPath)
 	ext := strings.ToLower(filepath.Ext(originalFilename))
 
-	// Set proper Content-Type for audio files BEFORE ServeRelativeFile
-	// This ensures Safari recognizes the file as audio
+	// Set proper Content-Type for audio files BEFORE ServeRelativeFile.
+	// This ensures Safari recognizes the file as audio.
 	switch ext {
 	case ".flac":
 		ctx.Response().Header().Set("Content-Type", MimeTypeFLAC)
@@ -584,25 +584,26 @@ func (c *Controller) ServeAudioByID(ctx echo.Context) error {
 		// Let ServeRelativeFile handle the content type
 	}
 
-	// Set Content-Disposition as inline to enable playback in browser
-	// Use filename* for proper UTF-8 filename encoding
-	// Only set filename if we have a valid, non-empty filename
+	// Set Content-Disposition as inline to enable playback in browser.
+	// Use filename* for proper UTF-8 filename encoding.
 	if isValidFilename(originalFilename) {
 		ctx.Response().Header().Set("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.QueryEscape(originalFilename)))
 	}
 
-	// Ensure Accept-Ranges header is set for iOS Safari
-	// This might be set by middleware but we ensure it's present
+	// Ensure Accept-Ranges header is set for iOS Safari.
 	ctx.Response().Header().Set("Accept-Ranges", "bytes")
 
-	// Serve the file using SecureFS. It handles path validation (relative/absolute within baseDir).
-	// ServeFile internally calls relativePath which ensures the path is within the SecureFS baseDir.
-	// Use ServeRelativeFile as clipPath is already relative to the baseDir
+	// Serve the file using SecureFS.
 	err = c.SFS.ServeRelativeFile(ctx, normalizedClipPath)
 	if err != nil {
-		// Check if this is a 404 for a file that's still being encoded by FFmpeg.
-		// The detection DB record is committed before audio export completes, so the
-		// frontend may request the file before it exists on disk.
+		// Clear audio-specific headers before error handling so 404 responses
+		// don't carry Content-Type: audio/wav on JSON error bodies.
+		if !ctx.Response().Committed {
+			ctx.Response().Header().Del("Content-Type")
+			ctx.Response().Header().Del("Content-Disposition")
+			ctx.Response().Header().Del("Accept-Ranges")
+		}
+
 		var httpErr *echo.HTTPError
 		if errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound {
 			return c.handleAudio404WithWait(ctx, normalizedClipPath, err,
@@ -835,18 +836,38 @@ func (c *Controller) ProcessAudioByID(ctx echo.Context) error {
 			"Server busy, try again later", http.StatusServiceUnavailable)
 	}
 
-	buf, err := ffmpeg.ProcessAudioFile(ctx.Request().Context(), absolutePath,
-		c.Settings.Realtime.Audio.FfmpegPath, filters)
+	// Write to a temp file so FFmpeg produces valid WAV headers (correct data size).
+	// Piping to stdout produces broken headers because FFmpeg can't seek back to
+	// update the RIFF chunk sizes, causing playback artifacts in some browsers.
+	// Use app-managed dir (not os.TempDir) for container compatibility with read-only rootfs.
+	tmpDir := filepath.Join(c.SFS.BaseDir(), ".tmp-processing")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return c.HandleError(ctx, err, "Failed to create temp directory", http.StatusInternalServerError)
+	}
+	tmpFile, err := os.CreateTemp(tmpDir, "birdnet-process-*.wav")
 	if err != nil {
+		return c.HandleError(ctx, err, "Failed to create temp file", http.StatusInternalServerError)
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+	defer os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup
+
+	if err := ffmpeg.ProcessAudioToFile(ctx.Request().Context(), absolutePath,
+		c.Settings.Realtime.Audio.FfmpegPath, filters, tmpPath); err != nil {
 		if ctx.Request().Context().Err() != nil {
 			return nil // Client disconnected
 		}
 		return c.HandleError(ctx, err, "Failed to process audio", http.StatusInternalServerError)
 	}
 
+	wavData, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return c.HandleError(ctx, err, "Failed to read processed audio", http.StatusInternalServerError)
+	}
+
 	// Cache the result (non-fatal on failure)
 	if c.processingCache != nil {
-		if err := c.processingCache.put(cacheKey, buf.Bytes()); err != nil {
+		if err := c.processingCache.put(cacheKey, wavData); err != nil {
 			c.logAPIRequest(ctx, logger.LogLevelWarn, "Failed to cache processed audio",
 				logger.String("cache_key", cacheKey),
 				logger.Error(err),
@@ -854,7 +875,7 @@ func (c *Controller) ProcessAudioByID(ctx echo.Context) error {
 		}
 	}
 
-	return ctx.Blob(http.StatusOK, MimeTypeWAV, buf.Bytes())
+	return ctx.Blob(http.StatusOK, MimeTypeWAV, wavData)
 }
 
 // ProcessedSpectrogramByID generates a spectrogram from processed (denoised/normalized) audio.
@@ -2459,7 +2480,7 @@ func (c *Controller) acquireSemaphoreSlot(ctx context.Context, spectrogramKey st
 }
 
 // performSpectrogramGeneration executes the actual spectrogram generation logic
-func (c *Controller) performSpectrogramGeneration(ctx context.Context, relSpectrogramPath, absAudioPath, absSpectrogramPath, spectrogramKey string, width int, raw bool) (any, error) {
+func (c *Controller) performSpectrogramGeneration(ctx context.Context, relSpectrogramPath, absAudioPath, absSpectrogramPath, spectrogramKey string, width int, raw bool, validatedDuration float64) (any, error) {
 	// Fast path inside the group – now race-free
 	getSpectrogramLogger().Debug("Inside singleflight group, double-checking if spectrogram exists",
 		logger.String("spectrogram_key", spectrogramKey))
@@ -2514,7 +2535,7 @@ func (c *Controller) performSpectrogramGeneration(ctx context.Context, relSpectr
 		logger.Int("max_slots", maxConcurrentSpectrograms))
 
 	// Generate the spectrogram with SoX or FFmpeg fallback
-	if err := c.generateWithFallback(ctx, absAudioPath, absSpectrogramPath, spectrogramKey, width, raw); err != nil {
+	if err := c.generateWithFallback(ctx, absAudioPath, absSpectrogramPath, spectrogramKey, width, raw, validatedDuration); err != nil {
 		return nil, err
 	}
 
@@ -2592,7 +2613,7 @@ func (c *Controller) verifySpectrogramFile(absPath, relPath string) error {
 }
 
 // generateWithFallback attempts to generate a spectrogram with SoX, falling back to FFmpeg on failure
-func (c *Controller) generateWithFallback(ctx context.Context, absAudioPath, absSpectrogramPath, spectrogramKey string, width int, raw bool) error {
+func (c *Controller) generateWithFallback(ctx context.Context, absAudioPath, absSpectrogramPath, spectrogramKey string, width int, raw bool, validatedDuration float64) error {
 	generationStart := time.Now()
 
 	getSpectrogramLogger().Debug("Starting spectrogram generation via shared generator",
@@ -2601,8 +2622,14 @@ func (c *Controller) generateWithFallback(ctx context.Context, absAudioPath, abs
 		logger.Int("width", width),
 		logger.Bool("raw", raw))
 
-	// Use shared generator which handles Sox→FFmpeg fallback internally
-	if err := c.spectrogramGenerator.GenerateFromFile(ctx, absAudioPath, absSpectrogramPath, width, raw); err != nil {
+	// Use shared generator which handles Sox→FFmpeg fallback internally.
+	// Pass the pre-validated duration from FFprobe to avoid a redundant sox --info call
+	// (which fails for MP3/AAC without libsox-fmt-mp3, causing dark spectrograms).
+	var genOpts []spectrogram.GenerateOption
+	if validatedDuration > 0 {
+		genOpts = append(genOpts, spectrogram.WithDuration(validatedDuration))
+	}
+	if err := c.spectrogramGenerator.GenerateFromFile(ctx, absAudioPath, absSpectrogramPath, width, raw, genOpts...); err != nil {
 		// Check if this is an expected operational error (context canceled, process killed)
 		// These are normal events during shutdown, timeout, or resource management
 		if spectrogram.IsOperationalError(err) {
@@ -2719,9 +2746,16 @@ func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, 
 
 		// Step 5: Validate audio file with FFprobe (expensive ~300ms subprocess).
 		// Running inside singleflight ensures only one FFprobe call per unique spectrogram key.
-		_, err := c.validateSpectrogramInputs(sharedCtx, absAudioPath, audioPath, spectrogramKey)
+		validationResult, err := c.validateSpectrogramInputs(sharedCtx, absAudioPath, audioPath, spectrogramKey)
 		if err != nil {
 			return nil, err
+		}
+
+		// Extract validated duration to pass to the generator, avoiding a redundant
+		// sox --info call (which fails for MP3/AAC without libsox-fmt-mp3).
+		var validatedDuration float64
+		if validationResult != nil {
+			validatedDuration = validationResult.Duration
 		}
 
 		getSpectrogramLogger().Debug("Proceeding with spectrogram generation",
@@ -2729,7 +2763,8 @@ func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, 
 			logger.String("abs_audio_path", absAudioPath),
 			logger.String("abs_spectrogram_path", absSpectrogramPath),
 			logger.Int("width", width),
-			logger.Bool("raw", raw))
+			logger.Bool("raw", raw),
+			logger.Float64("validated_duration", validatedDuration))
 
 		// Acquire semaphore inside singleflight - only the actual worker gets a slot
 		if err := c.acquireSemaphoreSlot(sharedCtx, spectrogramKey); err != nil {
@@ -2746,7 +2781,7 @@ func (c *Controller) generateSpectrogram(ctx context.Context, audioPath string, 
 				logger.Int("slots_now_available", maxConcurrentSpectrograms-slotsAfterRelease),
 				logger.Int64("total_duration_ms", time.Since(start).Milliseconds()))
 		}()
-		return c.performSpectrogramGeneration(sharedCtx, relSpectrogramPath, absAudioPath, absSpectrogramPath, spectrogramKey, width, raw)
+		return c.performSpectrogramGeneration(sharedCtx, relSpectrogramPath, absAudioPath, absSpectrogramPath, spectrogramKey, width, raw, validatedDuration)
 	})
 
 	// Wait for either the singleflight result or caller's context cancellation.

@@ -36,7 +36,9 @@ function getNestedValue(obj: unknown, path: string): unknown {
     if (current === null || current === undefined || typeof current !== 'object') {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[segment];
+    const record = current as Record<string, unknown>;
+    // eslint-disable-next-line security/detect-object-injection -- guarded by Object.hasOwn check above
+    current = Object.hasOwn(record, segment) ? record[segment] : undefined;
   }
   return current;
 }
@@ -61,7 +63,9 @@ function findLeakedSecrets(
   if (Array.isArray(obj)) {
     for (let i = 0; i < obj.length; i++) {
       const itemPath = prefix ? `${prefix}[${i}]` : `[${i}]`;
-      results.push(...findLeakedSecrets(obj[i], sensitiveKeyNames, itemPath));
+      // eslint-disable-next-line security/detect-object-injection -- safe numeric array index access
+      const element: unknown = obj[i];
+      results.push(...findLeakedSecrets(element, sensitiveKeyNames, itemPath));
     }
     return results;
   }

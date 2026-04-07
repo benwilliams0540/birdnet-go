@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tphakala/birdnet-go/internal/datastore/v2/entities"
 	"github.com/tphakala/birdnet-go/internal/detection"
+	"github.com/tphakala/birdnet-go/internal/errors"
 )
 
 func TestNewSQLiteManager(t *testing.T) {
@@ -466,6 +467,82 @@ func TestSQLiteManager_NoReverseForeignKey(t *testing.T) {
 		"audio_sources should not have source_id column (renamed to source_uri)")
 }
 
+func TestCleanupLegacySchemaContamination_DropsEmptyTable(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewSQLiteManager(Config{DataDir: tmpDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Create the image_caches table with an orphaned scientific_name column
+	// that would have been added by the legacy AutoMigrate bug.
+	err = mgr.DB().Exec(`CREATE TABLE IF NOT EXISTS image_caches (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		species_code TEXT,
+		url TEXT,
+		cached_at DATETIME,
+		scientific_name TEXT NOT NULL DEFAULT ''
+	)`).Error
+	require.NoError(t, err)
+
+	// Verify the orphaned column exists before cleanup
+	var colCount int64
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM pragma_table_info('image_caches') WHERE name = 'scientific_name'").Scan(&colCount).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), colCount, "scientific_name column should exist before cleanup")
+
+	// Run cleanup — should succeed with no error
+	err = mgr.cleanupLegacySchemaContamination()
+	require.NoError(t, err)
+
+	// Verify the scientific_name column is gone
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM pragma_table_info('image_caches') WHERE name = 'scientific_name'").Scan(&colCount).Error
+	// Table may have been dropped entirely (empty table fallback), so handle both cases
+	if err != nil {
+		// Table was dropped — that's fine for an empty table
+		colCount = 0
+	}
+	assert.Equal(t, int64(0), colCount, "scientific_name column should not exist after cleanup")
+}
+
+func TestCleanupLegacySchemaContamination_PreservesPopulatedTable(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewSQLiteManager(Config{DataDir: tmpDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Create the image_caches table with an orphaned scientific_name column
+	err = mgr.DB().Exec(`CREATE TABLE IF NOT EXISTS image_caches (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		species_code TEXT,
+		url TEXT,
+		cached_at DATETIME,
+		scientific_name TEXT NOT NULL DEFAULT ''
+	)`).Error
+	require.NoError(t, err)
+
+	// Insert a row so the table is populated
+	err = mgr.DB().Exec(`INSERT INTO image_caches (species_code, url, cached_at, scientific_name) VALUES ('turdmer', 'http://example.com/img.jpg', datetime('now'), 'Turdus merula')`).Error
+	require.NoError(t, err)
+
+	// Run cleanup — on modern SQLite (3.35.0+), DROP COLUMN should succeed
+	err = mgr.cleanupLegacySchemaContamination()
+	require.NoError(t, err)
+
+	// Verify the scientific_name column is gone (modern SQLite can DROP COLUMN)
+	var colCount int64
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM pragma_table_info('image_caches') WHERE name = 'scientific_name'").Scan(&colCount).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), colCount, "scientific_name column should be removed by DROP COLUMN on modern SQLite")
+
+	// Verify the row is still there
+	var rowCount int64
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM image_caches").Scan(&rowCount).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rowCount, "existing data should be preserved after DROP COLUMN")
+}
+
 func TestScrubErrorWithPaths(t *testing.T) {
 	t.Parallel()
 
@@ -547,4 +624,89 @@ func TestSQLiteManager_PeriodicCheckpoint(t *testing.T) {
 		err = mgr.DB().Exec("PRAGMA wal_checkpoint(PASSIVE)").Error
 		assert.NoError(t, err, "PASSIVE WAL checkpoint should succeed")
 	})
+}
+
+func TestValidateV2SchemaIntegrity_DetectsContamination(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewSQLiteManager(Config{DataDir: tmpDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Initialize normally to create clean schema
+	err = mgr.Initialize()
+	require.NoError(t, err)
+
+	// Add an unexpected column to image_caches (table should be empty)
+	err = mgr.DB().Exec("ALTER TABLE image_caches ADD COLUMN bogus_column TEXT DEFAULT ''").Error
+	require.NoError(t, err)
+
+	// Verify the table is empty (no image cache rows inserted by Initialize)
+	var rowCount int64
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM image_caches").Scan(&rowCount).Error
+	require.NoError(t, err)
+	require.Equal(t, int64(0), rowCount, "image_caches should be empty after Initialize")
+
+	// Run validation — should succeed by dropping the empty contaminated table
+	err = mgr.validateV2SchemaIntegrity()
+	require.NoError(t, err)
+
+	// The table should have been dropped — verify via raw SQLite query
+	// (GORM's HasTable may use cached schema information)
+	var tableCount int64
+	err = mgr.DB().Raw("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='image_caches'").Scan(&tableCount).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), tableCount,
+		"image_caches should have been dropped because it was empty and contaminated")
+}
+
+func TestValidateV2SchemaIntegrity_ErrorsOnPopulatedContamination(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewSQLiteManager(Config{DataDir: tmpDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Initialize normally to create clean schema
+	err = mgr.Initialize()
+	require.NoError(t, err)
+
+	// Temporarily disable FK checks so we can insert a test row without valid references
+	err = mgr.DB().Exec("PRAGMA foreign_keys = OFF").Error
+	require.NoError(t, err)
+
+	// Insert a row first (using the real schema columns), then add an unexpected column
+	err = mgr.DB().Exec("INSERT INTO image_caches (provider_name, label_id, source_provider, url, cached_at) VALUES ('wikimedia', 1, 'wikimedia', 'http://example.com/img.jpg', datetime('now'))").Error
+	require.NoError(t, err)
+
+	// Re-enable FK checks
+	err = mgr.DB().Exec("PRAGMA foreign_keys = ON").Error
+	require.NoError(t, err)
+
+	err = mgr.DB().Exec("ALTER TABLE image_caches ADD COLUMN bogus_column TEXT DEFAULT ''").Error
+	require.NoError(t, err)
+
+	// Run validation — should return an error for the populated contaminated table
+	err = mgr.validateV2SchemaIntegrity()
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrV2SchemaCorrupted),
+		"error should wrap ErrV2SchemaCorrupted, got: %v", err)
+	assert.Contains(t, err.Error(), "bogus_column",
+		"error should mention the unexpected column name")
+}
+
+func TestValidateV2SchemaIntegrity_PassesCleanSchema(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr, err := NewSQLiteManager(Config{DataDir: tmpDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	// Initialize normally to create clean schema
+	err = mgr.Initialize()
+	require.NoError(t, err)
+
+	// Run validation on a clean schema — should pass with no error
+	err = mgr.validateV2SchemaIntegrity()
+	require.NoError(t, err)
 }
