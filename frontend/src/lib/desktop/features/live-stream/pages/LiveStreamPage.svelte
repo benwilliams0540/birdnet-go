@@ -1032,6 +1032,8 @@
             {frequencyRange}
             {colorMap}
             isActive={activeSpectrogramIsActive}
+            advanceOnlyOnFrameChange={usingBackendLiveSpectrogram}
+            frameRate={60}
             overlayLabels={showDetectionLabels ? overlayLabels : []}
             debug={debugOverlay}
             wallClockAtPlayhead={currentWallClockAtPlayhead}

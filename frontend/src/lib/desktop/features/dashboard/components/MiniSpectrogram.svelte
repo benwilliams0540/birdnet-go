@@ -731,6 +731,8 @@
           {frequencyRange}
           {colorMap}
           isActive={activeSpectrogramIsActive}
+          advanceOnlyOnFrameChange={usingBackendLiveSpectrogram}
+          frameRate={60}
           overlayLabels={showDetectionLabels ? overlayLabels : []}
           overlayFontSize={9}
           className="h-28 w-full"

@@ -27,8 +27,8 @@ const (
 	liveSpectrogramHeartbeatInterval = 10 * time.Second
 	liveSpectrogramColumnsPerSecond  = 60
 
-	liveSpectrogramMinDecibels  = -95.0
-	liveSpectrogramMaxDecibels  = -20.0
+	liveSpectrogramMinDecibels  = -100.0
+	liveSpectrogramMaxDecibels  = -30.0
 	liveSpectrogramMagnitudeEps = 1e-12
 	liveSpectrogramSmoothing    = 0.8
 	liveSpectrogramByteMax      = 255
@@ -335,7 +335,8 @@ func (t *liveSpectrogramTap) computeColumn() []byte {
 	bins := make([]byte, t.fftSize/2)
 	for i := range bins {
 		magnitude := math.Hypot(real(window[i]), imag(window[i]))
-		db := 20 * math.Log10(magnitude+liveSpectrogramMagnitudeEps)
+		normalizedMagnitude := magnitude / (float64(t.fftSize) / 2)
+		db := 20 * math.Log10(normalizedMagnitude+liveSpectrogramMagnitudeEps)
 		normalized := normalizeLiveSpectrogramDecibels(db)
 		smoothed := t.smoothed[i]*liveSpectrogramSmoothing + normalized*(1-liveSpectrogramSmoothing)
 		t.smoothed[i] = smoothed

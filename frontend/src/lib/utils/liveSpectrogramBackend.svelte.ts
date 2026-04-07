@@ -49,6 +49,7 @@ export function isWebKitLiveSpectrogramBrowser(): boolean {
 export function useLiveSpectrogramBackend(options?: { gainDb?: number }) {
   let eventSource: ReconnectingEventSource | null = null;
   let latestBins = new Uint8Array(DEFAULT_FFT_SIZE / 2) as Uint8Array<ArrayBuffer>;
+  let frameToken = 0;
 
   let analyser = $state<AnalyserNode | null>(null);
   let frequencyData = $state<Uint8Array<ArrayBuffer>>(new Uint8Array(DEFAULT_FFT_SIZE / 2));
@@ -61,6 +62,9 @@ export function useLiveSpectrogramBackend(options?: { gainDb?: number }) {
   const analyserLike = {
     get frequencyBinCount() {
       return latestBins.length;
+    },
+    get frameToken() {
+      return frameToken;
     },
     getByteFrequencyData(target: Uint8Array<ArrayBuffer>) {
       const scale = gainDbToScale(gainDb);
@@ -115,6 +119,7 @@ export function useLiveSpectrogramBackend(options?: { gainDb?: number }) {
           sampleRate = message.sampleRate;
         }
 
+        frameToken += 1;
         lastFrameAtMs = Date.now();
         isActive = true;
       } catch (error) {

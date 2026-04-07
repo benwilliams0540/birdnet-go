@@ -38,6 +38,10 @@
     scrollSpeed?: number;
     /** Whether the analyser is active (controls animation loop) */
     isActive?: boolean;
+    /** Advance the waterfall only when analyser.frameToken changes */
+    advanceOnlyOnFrameChange?: boolean;
+    /** Expected backend frame rate when advancing on fresh frame tokens */
+    frameRate?: number;
     /** Additional CSS classes for the container */
     className?: string;
     /** Detection labels to render on the spectrogram */
@@ -65,6 +69,8 @@
     colorMap = DEFAULT_COLOR_MAP,
     scrollSpeed = 60,
     isActive = false,
+    advanceOnlyOnFrameChange = false,
+    frameRate = 60,
     className = '',
     overlayLabels = [],
     overlayFontSize = 11,
@@ -230,6 +236,7 @@
     let lastFrameTime = performance.now();
     let scrollAccumulator = 0;
     let frameId: number;
+    let lastAnalyserFrameToken = -1;
     // Track whether overlay was drawn last frame to avoid clearing an already-empty canvas
     let overlayHadContent = false;
 
@@ -269,10 +276,29 @@
       // Read frequency data from analyser
       analyser.getByteFrequencyData(frequencyData);
 
-      // Compute device pixels to scroll
-      scrollAccumulator += deviceScrollSpeed * deltaTime;
-      const pixelsToScroll = Math.floor(scrollAccumulator);
-      scrollAccumulator -= pixelsToScroll;
+      const analyserFrameToken = Number(
+        (analyser as unknown as { frameToken?: number }).frameToken ?? Number.NaN
+      );
+      const hasFreshFrame =
+        !advanceOnlyOnFrameChange ||
+        !Number.isFinite(analyserFrameToken) ||
+        analyserFrameToken !== lastAnalyserFrameToken;
+
+      let pixelsToScroll = 0;
+      if (advanceOnlyOnFrameChange) {
+        if (hasFreshFrame) {
+          const pixelsPerFrame = Math.max(1, Math.round(deviceScrollSpeed / Math.max(frameRate, 1)));
+          pixelsToScroll = pixelsPerFrame;
+          if (Number.isFinite(analyserFrameToken)) {
+            lastAnalyserFrameToken = analyserFrameToken;
+          }
+        }
+      } else {
+        // Compute device pixels to scroll
+        scrollAccumulator += deviceScrollSpeed * deltaTime;
+        pixelsToScroll = Math.floor(scrollAccumulator);
+        scrollAccumulator -= pixelsToScroll;
+      }
 
       if (pixelsToScroll > 0) {
         const w = deviceWidth;
