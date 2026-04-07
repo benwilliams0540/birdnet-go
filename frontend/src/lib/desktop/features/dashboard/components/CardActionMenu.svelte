@@ -35,6 +35,7 @@
   interface Props {
     detection: Detection;
     isExcluded?: boolean;
+    showDownload?: boolean;
     onReview?: () => void;
     onToggleSpecies?: () => void;
     onToggleLock?: () => void;
@@ -47,6 +48,7 @@
   let {
     detection,
     isExcluded = false,
+    showDownload = true,
     onReview,
     onToggleSpecies,
     onToggleLock,
@@ -212,15 +214,19 @@
         </li>
       {/if}
 
-      <li>
-        <button onclick={() => handleAction(onDownload)} class="menu-item" role="menuitem">
-          <Download class="size-4" />
-          <span>{t('media.audio.download')}</span>
-        </button>
-      </li>
+      {#if showDownload}
+        <li>
+          <button onclick={() => handleAction(onDownload)} class="menu-item" role="menuitem">
+            <Download class="size-4" />
+            <span>{t('media.audio.download')}</span>
+          </button>
+        </li>
+      {/if}
 
       {#if canEdit && !detection.locked}
-        <li class="menu-separator"></li>
+        {#if showDownload}
+          <li class="menu-separator"></li>
+        {/if}
         <li>
           <button
             onclick={() => handleAction(onDelete)}

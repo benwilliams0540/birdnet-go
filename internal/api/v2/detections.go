@@ -168,6 +168,7 @@ type DetectionResponse struct {
 	ScientificName     string            `json:"scientificName"`
 	CommonName         string            `json:"commonName"`
 	Confidence         float64           `json:"confidence"`
+	ClipName           string            `json:"clipName,omitempty"`
 	Verified           string            `json:"verified"`
 	Locked             bool              `json:"locked"`
 	Comments           []CommentResponse `json:"comments,omitempty"`
@@ -636,6 +637,7 @@ func (c *Controller) noteToDetectionResponse(note *datastore.Note, includeWeathe
 		ScientificName: note.ScientificName,
 		CommonName:     note.CommonName,
 		Confidence:     note.Confidence,
+		ClipName:       safeBaseName(note.ClipName),
 		Locked:         note.Locked,
 	}
 

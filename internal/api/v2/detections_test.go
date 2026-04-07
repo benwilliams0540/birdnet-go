@@ -588,6 +588,7 @@ func TestGetDetection(t *testing.T) {
 		ScientificName: "Corvus brachyrhynchos",
 		CommonName:     "American Crow",
 		Confidence:     0.95,
+		ClipName:       "clips/2025/03/07/american_crow.wav",
 		BeginTime:      time.Now().Add(-time.Hour),
 		EndTime:        time.Now(),
 		Verified:       "correct",
@@ -628,6 +629,7 @@ func TestGetDetection(t *testing.T) {
 				assert.Equal(t, "Corvus brachyrhynchos", response.ScientificName)
 				assert.Equal(t, "American Crow", response.CommonName)
 				assert.InDelta(t, 0.95, response.Confidence, 0.01)
+				assert.Equal(t, "american_crow.wav", response.ClipName)
 				assert.Equal(t, "correct", response.Verified)
 				assert.False(t, response.Locked)
 				assert.Len(t, response.Comments, 1)
@@ -840,6 +842,7 @@ func TestGetRecentDetections(t *testing.T) {
 			ScientificName: "Corvus brachyrhynchos",
 			CommonName:     "American Crow",
 			Confidence:     0.95,
+			ClipName:       "clips/2025/03/07/american_crow.wav",
 			BeginTime:      time.Now().Add(-time.Hour),
 			EndTime:        time.Now(),
 			Verified:       "correct",
@@ -854,6 +857,7 @@ func TestGetRecentDetections(t *testing.T) {
 			ScientificName: "Melanerpes carolinus",
 			CommonName:     "Red-bellied Woodpecker",
 			Confidence:     0.85,
+			ClipName:       "clips/2025/03/07/red_bellied_woodpecker.wav",
 			BeginTime:      time.Now().Add(-2 * time.Hour),
 			EndTime:        time.Now().Add(-time.Hour),
 			Verified:       "false_positive",
@@ -927,6 +931,12 @@ func TestGetRecentDetections(t *testing.T) {
 				err = json.Unmarshal(rec.Body.Bytes(), &detections)
 				require.NoError(t, err)
 				assert.Len(t, detections, tc.expectedCount)
+				if len(detections) > 0 {
+					assert.Equal(t, "american_crow.wav", detections[0].ClipName)
+				}
+				if len(detections) > 1 {
+					assert.Equal(t, "red_bellied_woodpecker.wav", detections[1].ClipName)
+				}
 			} else {
 				// For error cases, the controller returns a JSON error response, not an echo.HTTPError
 				require.NoError(t, err) // The error is handled inside the controller

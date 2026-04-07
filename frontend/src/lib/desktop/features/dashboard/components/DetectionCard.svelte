@@ -197,7 +197,14 @@
   <div class="detection-card-inner">
     <!-- Spectrogram Background -->
     <div class="spectrogram-container">
-      {#if hasAudioClip && loader.showSpinner}
+      {#if !hasAudioClip}
+        <div class="spectrogram-empty" data-testid="no-recording-message">
+          <span class="text-sm text-[var(--color-base-content)]/55">No recording available</span>
+          <span class="text-xs text-[var(--color-base-content)]/40 mt-1"
+            >No spectrogram available</span
+          >
+        </div>
+      {:else if loader.showSpinner}
         <div class="spectrogram-loading">
           <span class="loading loading-spinner loading-md text-[var(--color-base-content)]/50"
           ></span>
@@ -207,13 +214,11 @@
             <span class="text-xs text-[var(--color-base-content)]/40 mt-1">Generating...</span>
           {/if}
         </div>
-      {/if}
-
-      {#if hasAudioClip && loader.error}
+      {:else if loader.error}
         <div class="spectrogram-error">
           <span class="text-sm text-[var(--color-base-content)]/50">Spectrogram unavailable</span>
         </div>
-      {:else if hasAudioClip && loader.spectrogramUrl}
+      {:else if loader.spectrogramUrl}
         <img
           src={loader.spectrogramUrl}
           alt="Spectrogram for {detection.commonName}"
@@ -279,6 +284,7 @@
     <CardActionMenu
       {detection}
       {isExcluded}
+      showDownload={hasAudioClip}
       {onReview}
       {onToggleSpecies}
       {onToggleLock}
@@ -322,7 +328,8 @@
   }
 
   .spectrogram-loading,
-  .spectrogram-error {
+  .spectrogram-error,
+  .spectrogram-empty {
     position: absolute;
     inset: 0;
     display: flex;
@@ -338,7 +345,8 @@
 
   /* Dark theme spectrogram background */
   :global([data-theme='dark']) .spectrogram-loading,
-  :global([data-theme='dark']) .spectrogram-error {
+  :global([data-theme='dark']) .spectrogram-error,
+  :global([data-theme='dark']) .spectrogram-empty {
     background: linear-gradient(135deg, rgb(30 41 59 / 0.9) 0%, rgb(15 23 42 / 0.95) 100%);
   }
 
