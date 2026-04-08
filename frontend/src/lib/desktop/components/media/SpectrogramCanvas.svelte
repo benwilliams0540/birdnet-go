@@ -237,6 +237,7 @@
     let scrollAccumulator = 0;
     let frameId: number;
     let lastAnalyserFrameToken = -1;
+    let renderedWallClockAtPlayhead = wallClockAtPlayhead > 0 ? wallClockAtPlayhead : 0;
     // Track whether overlay was drawn last frame to avoid clearing an already-empty canvas
     let overlayHadContent = false;
 
@@ -289,6 +290,9 @@
         if (hasFreshFrame) {
           const pixelsPerFrame = Math.max(1, Math.round(deviceScrollSpeed / Math.max(frameRate, 1)));
           pixelsToScroll = pixelsPerFrame;
+          if (wallClockAtPlayhead > 0) {
+            renderedWallClockAtPlayhead = wallClockAtPlayhead;
+          }
           if (Number.isFinite(analyserFrameToken)) {
             lastAnalyserFrameToken = analyserFrameToken;
           }
@@ -298,7 +302,12 @@
         scrollAccumulator += deviceScrollSpeed * deltaTime;
         pixelsToScroll = Math.floor(scrollAccumulator);
         scrollAccumulator -= pixelsToScroll;
+        if (wallClockAtPlayhead > 0) {
+          renderedWallClockAtPlayhead = wallClockAtPlayhead;
+        }
       }
+
+      const overlayWallClockAtPlayhead = renderedWallClockAtPlayhead;
 
       if (pixelsToScroll > 0) {
         const w = deviceWidth;
@@ -334,13 +343,13 @@
         olCtx.clearRect(0, 0, deviceWidth, deviceHeight);
 
         // --- Debug time markers: vertical lines every 5s with HH:MM:SS ---
-        if (debug && wallClockAtPlayhead > 0) {
+        if (debug && overlayWallClockAtPlayhead > 0) {
           const debugFontSize = Math.round(9 * dpr);
           const visibleSeconds = deviceWidth / deviceScrollSpeed;
 
           // Draw markers from right edge backwards
           // Right edge = wallClockAtPlayhead, left edge = wallClockAtPlayhead - visibleSeconds
-          const rightEdgeTime = wallClockAtPlayhead;
+          const rightEdgeTime = overlayWallClockAtPlayhead;
           // Find the nearest 5-second boundary at or before the right edge
           const firstMarker =
             Math.floor(rightEdgeTime / DEBUG_MARKER_INTERVAL_SEC) * DEBUG_MARKER_INTERVAL_SEC;
@@ -382,9 +391,9 @@
           olCtx.font = `${debugFontSize}px monospace`;
           olCtx.fillStyle = 'rgba(255, 255, 0, 0.9)';
           olCtx.textBaseline = 'top';
-          const playheadStr = formatTimeCached(wallClockAtPlayhead);
+          const playheadStr = formatTimeCached(overlayWallClockAtPlayhead);
           const nowStr = formatTimeCached(Date.now() / 1000);
-          const hlsDelay = (Date.now() / 1000 - wallClockAtPlayhead).toFixed(1);
+          const hlsDelay = (Date.now() / 1000 - overlayWallClockAtPlayhead).toFixed(1);
           olCtx.fillText(`playhead: ${playheadStr}`, 4 * dpr, 4 * dpr);
           olCtx.fillText(
             `wall: ${nowStr}  HLS lag: ${hlsDelay}s`,
@@ -414,7 +423,10 @@
           const maxSlots = Math.max(2, Math.floor(deviceHeight / (fontSize * 2.5)));
 
           for (const label of overlayLabels) {
-            const labelAge = (now - label.birthTime) / 1000;
+            const labelAge =
+              overlayWallClockAtPlayhead > 0 && label.firstDetected
+                ? Math.max(0, overlayWallClockAtPlayhead - label.firstDetected)
+                : (now - label.birthTime) / 1000;
             const x = deviceWidth - labelAge * deviceScrollSpeed;
 
             if (x < -200 * dpr || x > deviceWidth) continue;

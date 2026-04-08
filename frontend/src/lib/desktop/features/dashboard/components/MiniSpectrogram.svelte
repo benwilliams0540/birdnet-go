@@ -51,6 +51,7 @@
   const SOURCE_DISCOVERY_TIMEOUT = 5000;
   const ZERO_SIGNAL_CHECK_INTERVAL_MS = 500;
   const ZERO_SIGNAL_GRACE_MS = 3000;
+  const BACKEND_PLAYHEAD_STALE_MS = 750;
   /** How often (ms) to poll for label promotion and pruning */
   const LABEL_POLL_INTERVAL_MS = 200;
   /** Maximum label age (ms) before pruning from overlay */
@@ -101,6 +102,7 @@
   let prevSnapshot: PendingDetection[] = [];
   let lastSeenSpecies = new Map<string, number>();
   let slotCounter = 0;
+  let currentWallClockAtPlayhead = $state(0);
   const MAX_OVERLAY_SLOTS = 4;
 
   // Initialize composable during component init (must be at top level for $effect cleanup)
@@ -456,6 +458,7 @@
     prevSnapshot = [];
     lastSeenSpecies.clear();
     slotCounter = 0;
+    currentWallClockAtPlayhead = 0;
     zeroSignalSinceMs = 0;
     liveSignalUnavailable = false;
 
@@ -532,6 +535,13 @@
 
       const now = globalThis.performance.now();
       const nowUnix = Date.now() / 1000;
+      const mediaAdvancing =
+        !audioElement.paused && audioElement.currentTime > 0 && audioElement.readyState >= 2;
+      const backendFrameFresh =
+        !usingBackendLiveSpectrogram ||
+        (backendSpectro.lastFrameAtMs > 0 &&
+          Date.now() - backendSpectro.lastFrameAtMs < BACKEND_PLAYHEAD_STALE_MS);
+      const canAdvanceOverlay = mediaAdvancing && backendFrameFresh;
 
       const wallClockAtPlayhead = computeWallClockAtPlayhead(
         audioElement,
@@ -539,8 +549,12 @@
         nowUnix
       );
 
+      if (canAdvanceOverlay && wallClockAtPlayhead > 0) {
+        currentWallClockAtPlayhead = wallClockAtPlayhead;
+      }
+
       // Promote queued labels when playhead is available
-      if (wallClockAtPlayhead > 0 && labelQueue.length > 0) {
+      if (canAdvanceOverlay && wallClockAtPlayhead > 0 && labelQueue.length > 0) {
         const { promoted, remaining } = promoteFromQueue(labelQueue, wallClockAtPlayhead, now);
         if (promoted.length > 0) {
           labelQueue = remaining;
@@ -735,6 +749,7 @@
           frameRate={60}
           overlayLabels={showDetectionLabels ? overlayLabels : []}
           overlayFontSize={9}
+          wallClockAtPlayhead={currentWallClockAtPlayhead}
           className="h-28 w-full"
         />
         {#if liveSignalUnavailable}

@@ -47,6 +47,7 @@
   const HEARTBEAT_INTERVAL = 20000;
   const ZERO_SIGNAL_CHECK_INTERVAL_MS = 500;
   const ZERO_SIGNAL_GRACE_MS = 3000;
+  const BACKEND_PLAYHEAD_STALE_MS = 750;
   /** How often (ms) to poll for label promotion and pruning */
   const LABEL_POLL_INTERVAL_MS = 200;
   /** Maximum label age (ms) before pruning from overlay */
@@ -815,6 +816,13 @@
 
       const now = globalThis.performance.now();
       const nowUnix = Date.now() / 1000;
+      const mediaAdvancing =
+        !audioElement.paused && audioElement.currentTime > 0 && audioElement.readyState >= 2;
+      const backendFrameFresh =
+        !usingBackendLiveSpectrogram ||
+        (backendSpectro.lastFrameAtMs > 0 &&
+          Date.now() - backendSpectro.lastFrameAtMs < BACKEND_PLAYHEAD_STALE_MS);
+      const canAdvanceOverlay = mediaAdvancing && backendFrameFresh;
 
       const wallClockAtPlayhead = computeWallClockAtPlayhead(
         audioElement,
@@ -823,12 +831,12 @@
       );
 
       // Update reactive state for debug display in SpectrogramCanvas
-      if (wallClockAtPlayhead > 0) {
+      if (canAdvanceOverlay && wallClockAtPlayhead > 0) {
         currentWallClockAtPlayhead = wallClockAtPlayhead;
       }
 
       // Promote queued labels when playhead is available
-      if (wallClockAtPlayhead > 0 && labelQueue.length > 0) {
+      if (canAdvanceOverlay && wallClockAtPlayhead > 0 && labelQueue.length > 0) {
         const { promoted, remaining } = promoteFromQueue(labelQueue, wallClockAtPlayhead, now);
         if (promoted.length > 0) {
           labelQueue = remaining;
